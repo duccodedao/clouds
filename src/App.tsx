@@ -23,6 +23,7 @@ import { useDropzone } from 'react-dropzone';
 import confetti from 'canvas-confetti';
 import { analyzeImage, chatWithFile, semanticSearch } from './services/aiService';
 import { getDocFromServer } from 'firebase/firestore';
+import { UserData, FileData, FolderData } from './types';
 
 // --- Constants & Types ---
 
@@ -129,11 +130,11 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
-  const [userData, setUserData] = useState<any>(null);
+  const [userData, setUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('my-files');
-  const [files, setFiles] = useState<any[]>([]);
-  const [folders, setFolders] = useState<any[]>([]);
+  const [files, setFiles] = useState<FileData[]>([]);
+  const [folders, setFolders] = useState<FolderData[]>([]);
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isUploading, setIsUploading] = useState(false);
