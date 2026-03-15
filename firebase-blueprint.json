@@ -1,0 +1,76 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Stores user account information and storage quotas.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "joinDate": { "type": "string", "format": "date-time" },
+        "vipLevel": { "type": "string", "enum": ["USER", "VIP", "SVIP", "VVIP", "ENTERPRISE"] },
+        "storageUsed": { "type": "number" },
+        "storageLimit": { "type": "number" },
+        "balance": { "type": "number" },
+        "accountStatus": { "type": "string", "enum": ["ACTIVE", "BANNED"] }
+      },
+      "required": ["uid", "email"]
+    },
+    "File": {
+      "title": "File Metadata",
+      "description": "Stores metadata for uploaded files.",
+      "type": "object",
+      "properties": {
+        "fileId": { "type": "string" },
+        "uid": { "type": "string" },
+        "folderId": { "type": "string" },
+        "fileName": { "type": "string" },
+        "fileType": { "type": "string" },
+        "fileSize": { "type": "number" },
+        "downloadURL": { "type": "string" },
+        "thumbnail": { "type": "string" },
+        "description": { "type": "string" },
+        "uploadDate": { "type": "string", "format": "date-time" },
+        "visibility": { "type": "string", "enum": ["PUBLIC", "PRIVATE", "PASSWORD"] },
+        "password": { "type": "string" },
+        "expireTime": { "type": "string" },
+        "views": { "type": "number" },
+        "downloads": { "type": "number" },
+        "aiTags": { "type": "array", "items": { "type": "string" } },
+        "ocrText": { "type": "string" },
+        "faceData": { "type": "object" },
+        "versionHistory": { "type": "array" }
+      },
+      "required": ["fileId", "uid", "fileName", "downloadURL"]
+    },
+    "Folder": {
+      "title": "Folder",
+      "description": "Stores folder structure.",
+      "type": "object",
+      "properties": {
+        "folderId": { "type": "string" },
+        "uid": { "type": "string" },
+        "parentId": { "type": "string" },
+        "folderName": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["folderId", "uid", "folderName"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/files/{fileId}": {
+      "schema": "File",
+      "description": "File metadata"
+    },
+    "/folders/{folderId}": {
+      "schema": "Folder",
+      "description": "Folder structure"
+    }
+  }
+}
