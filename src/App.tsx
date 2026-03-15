@@ -25,10 +25,11 @@ import confetti from 'canvas-confetti';
 import { analyzeImage, chatWithFile, semanticSearch } from './services/aiService';
 import { getDocFromServer } from 'firebase/firestore';
 import { UserData, FileData, FolderData, UpgradeRequest } from './types';
+import { translations } from './translations';
 
 // --- Constants & Types ---
 
-const ADMIN_EMAILS = ["bmassk3@gmail.com"];
+const ADMIN_EMAILS = ["sonlyhongduc@gmail.com"];
 
 const STORAGE_TIERS = {
   USER: { limit: 1024 * 1024 * 1024, label: 'Standard', color: 'bg-slate-500', price: 0 },
@@ -94,6 +95,17 @@ export default function App() {
   const [allUsers, setAllUsers] = useState<UserData[]>([]);
   const [githubConfig, setGithubConfig] = useState({ token: '', repo: '', branch: 'main' });
   const [showUpgradeSuccess, setShowUpgradeSuccess] = useState(false);
+  const [language, setLanguage] = useState<'vi' | 'en'>('vi');
+
+  const t = (key: string, params?: Record<string, string>) => {
+    let text = (translations[language] as any)[key] || key;
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        text = text.replace(`{${k}}`, v);
+      });
+    }
+    return text;
+  };
 
   const handleError = (error: any, op: string, path: string | null) => {
     console.error(`Error during ${op} on ${path}:`, error);
@@ -282,10 +294,10 @@ export default function App() {
     }
   };
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop } as any);
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, noClick: true } as any);
 
   const handleDeleteFile = async (file: FileData) => {
-    if (!window.confirm(`Delete ${file.fileName}?`)) return;
+    if (!window.confirm(t('confirm_delete', { name: file.fileName }))) return;
     try {
       await deleteDoc(doc(db, 'files', file.fileId));
       await updateDoc(doc(db, 'users', user.uid), {
@@ -366,6 +378,7 @@ export default function App() {
   };
 
   const handleDeletePermanently = async (file: FileData) => {
+    if (!window.confirm(t('confirm_delete_perm', { name: file.fileName }))) return;
     try {
       await deleteDoc(doc(db, 'files', file.fileId));
       setPreviewFile(null);
@@ -459,19 +472,19 @@ export default function App() {
         <div className="w-20 h-20 bg-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-xl shadow-indigo-200">
           <HardDrive className="text-white w-10 h-10" />
         </div>
-        <h1 className="text-4xl font-bold text-slate-900 mb-4 font-display">Cloud Storage 2.0</h1>
-        <p className="text-slate-500 mb-10 text-lg">Secure, AI-powered storage for your digital life. Experience the next generation of file management.</p>
+        <h1 className="text-4xl font-bold text-slate-900 mb-4 font-display">{t('login_title')}</h1>
+        <p className="text-slate-500 mb-10 text-lg">{t('login_desc')}</p>
         <button 
           onClick={handleLogin}
           className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-4 rounded-2xl font-semibold text-lg transition-all shadow-lg shadow-indigo-100 flex items-center justify-center gap-3 active:scale-95"
         >
           <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-6 h-6" alt="Google" />
-          Continue with Google
+          {t('login_google')}
         </button>
         <div className="mt-8 flex items-center justify-center gap-6 text-slate-400">
-          <div className="flex items-center gap-1"><Shield size={16} /> Secure</div>
-          <div className="flex items-center gap-1"><Zap size={16} /> Fast</div>
-          <div className="flex items-center gap-1"><Cpu size={16} /> AI-Powered</div>
+          <div className="flex items-center gap-1"><Shield size={16} /> {t('secure')}</div>
+          <div className="flex items-center gap-1"><Zap size={16} /> {t('fast')}</div>
+          <div className="flex items-center gap-1"><Cpu size={16} /> {t('ai_powered')}</div>
         </div>
       </motion.div>
     </div>
@@ -519,39 +532,55 @@ export default function App() {
                 onClick={() => document.getElementById('file-upload')?.click()}
                 className="w-full btn-primary flex items-center justify-center gap-2 py-3"
               >
-                <Plus size={20} /> New Upload
+                <Plus size={20} /> {t('new_upload')}
               </button>
               <input type="file" id="file-upload" className="hidden" multiple onChange={(e) => onDrop(Array.from(e.target.files || []))} />
             </div>
 
             <nav className="flex-1 px-4 space-y-1 overflow-y-auto">
               <div className={`sidebar-item ${activeTab === 'my-files' ? 'active' : ''}`} onClick={() => {setActiveTab('my-files'); setCurrentFolder(null);}}>
-                <HardDrive size={20} /> My Files
+                <HardDrive size={20} /> {t('my_files')}
               </div>
               <div className={`sidebar-item ${activeTab === 'photos' ? 'active' : ''}`} onClick={() => setActiveTab('photos')}>
-                <ImageIcon size={20} /> Photos
+                <ImageIcon size={20} /> {t('photos')}
               </div>
               <div className={`sidebar-item ${activeTab === 'shared' ? 'active' : ''}`} onClick={() => setActiveTab('shared')}>
-                <Share2 size={20} /> Shared
+                <Share2 size={20} /> {t('shared')}
               </div>
               <div className={`sidebar-item ${activeTab === 'starred' ? 'active' : ''}`} onClick={() => setActiveTab('starred')}>
-                <Star size={20} /> Starred
+                <Star size={20} /> {t('starred')}
               </div>
               <div className={`sidebar-item ${activeTab === 'trash' ? 'active' : ''}`} onClick={() => setActiveTab('trash')}>
-                <Trash2 size={20} /> Trash
+                <Trash2 size={20} /> {t('trash')}
               </div>
               
-              <div className="pt-6 pb-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Account</div>
+              <div className="pt-6 pb-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">{t('account')}</div>
               <div className={`sidebar-item ${activeTab === 'vip' ? 'active' : ''}`} onClick={() => setActiveTab('vip')}>
-                <Crown size={20} className="text-amber-500" /> Upgrade VIP
+                <Crown size={20} className="text-amber-500" /> {t('upgrade_vip')}
               </div>
-              {(ADMIN_UIDS.includes(user.uid) || ADMIN_EMAILS.includes(user.email || '')) && (
+              {isAdmin && (
                 <div className={`sidebar-item ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>
-                  <Shield size={20} className="text-red-500" /> Admin Panel
+                  <Shield size={20} className="text-red-500" /> {t('admin_panel')}
                 </div>
               )}
-              <div className="sidebar-item" onClick={() => setActiveTab('settings')}>
-                <Settings size={20} /> Settings
+              <div className={`sidebar-item ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
+                <Settings size={20} /> {t('settings')}
+              </div>
+
+              <div className="pt-6 pb-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">{t('language')}</div>
+              <div className="px-4 flex gap-2">
+                <button 
+                  onClick={() => setLanguage('vi')}
+                  className={`flex-1 py-1 text-[10px] font-bold rounded-lg border transition-all ${language === 'vi' ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-200 text-slate-500'}`}
+                >
+                  {t('vi_lang')}
+                </button>
+                <button 
+                  onClick={() => setLanguage('en')}
+                  className={`flex-1 py-1 text-[10px] font-bold rounded-lg border transition-all ${language === 'en' ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-200 text-slate-500'}`}
+                >
+                  {t('en_lang')}
+                </button>
               </div>
             </nav>
 
@@ -560,7 +589,7 @@ export default function App() {
                 <img src={user.photoURL} className="w-10 h-10 rounded-full border-2 border-indigo-100" alt="Avatar" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold truncate">{user.displayName}</p>
-                  <p className="text-xs text-slate-500 truncate">{userData?.vipLevel} Plan</p>
+                  <p className="text-xs text-slate-500 truncate">{t('plan_label', { plan: userData?.vipLevel || 'USER' })}</p>
                 </div>
                 <button onClick={handleLogout} className="text-slate-400 hover:text-red-500 transition-colors">
                   <LogOut size={18} />
@@ -568,7 +597,7 @@ export default function App() {
               </div>
               <div className="space-y-2">
                 <div className="flex justify-between text-xs font-medium">
-                  <span className="text-slate-500">Storage</span>
+                  <span className="text-slate-500">{t('storage')}</span>
                   <span className="text-slate-900">{Math.round((userData?.storageUsed || 0) / (1024 * 1024))}MB / {Math.round((userData?.storageLimit || 1) / (1024 * 1024 * 1024))}GB</span>
                 </div>
                 <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
@@ -595,7 +624,7 @@ export default function App() {
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input 
                 type="text" 
-                placeholder="Search files, tags, or content..." 
+                placeholder={t('search_placeholder')}
                 className="w-full bg-slate-100 border-none rounded-2xl py-3 pl-12 pr-4 focus:ring-2 focus:ring-indigo-500 transition-all"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -652,8 +681,8 @@ export default function App() {
           {activeTab === 'vip' ? (
             <div className="max-w-4xl mx-auto py-10">
               <div className="text-center mb-12">
-                <h1 className="text-4xl font-bold mb-4">Upgrade to Premium</h1>
-                <p className="text-slate-500">Get more storage, AI features, and faster speeds. Request an upgrade and admin will review it.</p>
+                <h1 className="text-4xl font-bold mb-4">{t('upgrade_title')}</h1>
+                <p className="text-slate-500">{t('upgrade_desc')}</p>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 {Object.entries(STORAGE_TIERS).map(([key, tier]) => (
@@ -663,7 +692,7 @@ export default function App() {
                       <p className="text-3xl font-bold">${tier.price}<span className="text-sm text-slate-400 font-normal">/mo</span></p>
                     </div>
                     <ul className="space-y-4 mb-8 text-sm text-slate-600">
-                      <li className="flex items-center gap-2"><Check size={16} className="text-green-500" /> {tier.limit / (1024**3)}GB Storage</li>
+                      <li className="flex items-center gap-2"><Check size={16} className="text-green-500" /> {tier.limit / (1024**3)}GB {t('storage')}</li>
                       <li className="flex items-center gap-2"><Check size={16} className="text-green-500" /> AI Analysis</li>
                       <li className="flex items-center gap-2"><Check size={16} className="text-green-500" /> Priority Support</li>
                     </ul>
@@ -671,7 +700,7 @@ export default function App() {
                       onClick={() => userData?.vipLevel !== key && handleRequestUpgrade(key)}
                       className={`w-full py-3 rounded-2xl font-semibold transition-all ${userData?.vipLevel === key ? 'bg-slate-100 text-slate-400 cursor-default' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-100 active:scale-95'}`}
                     >
-                      {userData?.vipLevel === key ? 'Current Plan' : 'Request Upgrade'}
+                      {userData?.vipLevel === key ? t('current_plan') : t('request_upgrade')}
                     </button>
                   </div>
                 ))}
@@ -683,8 +712,8 @@ export default function App() {
                     <Clock size={24} />
                   </div>
                   <div>
-                    <h4 className="font-bold text-amber-900">Pending Request</h4>
-                    <p className="text-sm text-amber-700">You have a pending upgrade request. Admin will review it shortly.</p>
+                    <h4 className="font-bold text-amber-900">{t('pending_request')}</h4>
+                    <p className="text-sm text-amber-700">{t('pending_desc')}</p>
                   </div>
                 </div>
               )}
@@ -692,21 +721,21 @@ export default function App() {
           ) : activeTab === 'admin' ? (
             <div className="p-6 space-y-10">
               <div>
-                <h1 className="text-2xl font-bold mb-6 flex items-center gap-2"><Crown className="text-amber-500" /> Upgrade Requests</h1>
+                <h1 className="text-2xl font-bold mb-6 flex items-center gap-2"><Crown className="text-amber-500" /> {t('upgrade_requests')}</h1>
                 <div className="bg-white rounded-[2rem] border border-slate-100 overflow-hidden shadow-sm">
                   <table className="w-full text-left">
                     <thead className="bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                       <tr>
-                        <th className="px-6 py-4">User</th>
-                        <th className="px-6 py-4">Requested Level</th>
-                        <th className="px-6 py-4">Date</th>
-                        <th className="px-6 py-4">Actions</th>
+                        <th className="px-6 py-4">{t('user')}</th>
+                        <th className="px-6 py-4">{t('plan')}</th>
+                        <th className="px-6 py-4">{t('date')}</th>
+                        <th className="px-6 py-4">{t('actions')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {requests.filter(r => r.status === 'PENDING').length === 0 ? (
                         <tr>
-                          <td colSpan={4} className="px-6 py-10 text-center text-slate-400 italic">No pending requests</td>
+                          <td colSpan={4} className="px-6 py-10 text-center text-slate-400 italic">{t('no_files')}</td>
                         </tr>
                       ) : (
                         requests.filter(r => r.status === 'PENDING').map(req => (
@@ -726,14 +755,14 @@ export default function App() {
                                 <button 
                                   onClick={() => handleApproveRequest(req)}
                                   className="p-2 bg-green-50 text-green-600 hover:bg-green-100 rounded-lg transition-colors"
-                                  title="Approve"
+                                  title={t('approve')}
                                 >
                                   <Check size={18} />
                                 </button>
                                 <button 
                                   onClick={() => handleRejectRequest(req.requestId)}
                                   className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-colors"
-                                  title="Reject"
+                                  title={t('reject')}
                                 >
                                   <X size={18} />
                                 </button>
@@ -748,15 +777,15 @@ export default function App() {
               </div>
 
               <div>
-                <h1 className="text-2xl font-bold mb-6 flex items-center gap-2"><User className="text-indigo-500" /> All Users</h1>
+                <h1 className="text-2xl font-bold mb-6 flex items-center gap-2"><User className="text-indigo-500" /> {t('all_users')}</h1>
                 <div className="bg-white rounded-[2rem] border border-slate-100 overflow-hidden shadow-sm">
                   <table className="w-full text-left">
                     <thead className="bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                       <tr>
-                        <th className="px-6 py-4">User</th>
-                        <th className="px-6 py-4">Plan</th>
-                        <th className="px-6 py-4">Storage</th>
-                        <th className="px-6 py-4">Status</th>
+                        <th className="px-6 py-4">{t('user')}</th>
+                        <th className="px-6 py-4">{t('plan')}</th>
+                        <th className="px-6 py-4">{t('storage')}</th>
+                        <th className="px-6 py-4">{t('status')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -781,7 +810,7 @@ export default function App() {
                           </td>
                           <td className="px-6 py-4">
                             <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${u.accountStatus === 'ACTIVE' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                              {u.accountStatus}
+                              {u.accountStatus === 'ACTIVE' ? t('active') : t('banned')}
                             </span>
                           </td>
                         </tr>
@@ -793,61 +822,63 @@ export default function App() {
             </div>
           ) : activeTab === 'settings' ? (
             <div className="max-w-2xl mx-auto py-10">
-              <h1 className="text-3xl font-bold mb-8">Settings</h1>
+              <h1 className="text-3xl font-bold mb-8">{t('settings')}</h1>
               
               <div className="space-y-8">
-                <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
-                  <h3 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800">
-                    <div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center text-white">
-                      <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
-                    </div>
-                    GitHub Configuration
-                  </h3>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-2">Personal Access Token</label>
-                      <input 
-                        type="password" 
-                        placeholder="ghp_xxxxxxxxxxxx"
-                        className="w-full bg-slate-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-indigo-500"
-                        value={githubConfig.token}
-                        onChange={(e) => setGithubConfig({...githubConfig, token: e.target.value})}
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
+                {isAdmin && (
+                  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                    <h3 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800">
+                      <div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center text-white">
+                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+                      </div>
+                      {t('github_config')}
+                    </h3>
+                    <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-semibold text-slate-700 mb-2">Repository</label>
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">{t('token')}</label>
                         <input 
-                          type="text" 
-                          placeholder="username/repo"
+                          type="password" 
+                          placeholder="ghp_xxxxxxxxxxxx"
                           className="w-full bg-slate-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-indigo-500"
-                          value={githubConfig.repo}
-                          onChange={(e) => setGithubConfig({...githubConfig, repo: e.target.value})}
+                          value={githubConfig.token}
+                          onChange={(e) => setGithubConfig({...githubConfig, token: e.target.value})}
                         />
                       </div>
-                      <div>
-                        <label className="block text-sm font-semibold text-slate-700 mb-2">Branch</label>
-                        <input 
-                          type="text" 
-                          placeholder="main"
-                          className="w-full bg-slate-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-indigo-500"
-                          value={githubConfig.branch}
-                          onChange={(e) => setGithubConfig({...githubConfig, branch: e.target.value})}
-                        />
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-2">{t('repo')}</label>
+                          <input 
+                            type="text" 
+                            placeholder="username/repo"
+                            className="w-full bg-slate-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-indigo-500"
+                            value={githubConfig.repo}
+                            onChange={(e) => setGithubConfig({...githubConfig, repo: e.target.value})}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-2">{t('branch')}</label>
+                          <input 
+                            type="text" 
+                            placeholder="main"
+                            className="w-full bg-slate-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-indigo-500"
+                            value={githubConfig.branch}
+                            onChange={(e) => setGithubConfig({...githubConfig, branch: e.target.value})}
+                          />
+                        </div>
                       </div>
+                      <button className="btn-primary w-full mt-4">{t('save_config')}</button>
                     </div>
-                    <button className="btn-primary w-full mt-4">Save Configuration</button>
                   </div>
-                </div>
+                )}
 
                 <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
                   <h3 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800">
-                    <User className="text-indigo-600" /> Account Settings
+                    <User className="text-indigo-600" /> {t('account_settings')}
                   </h3>
                   <div className="space-y-4">
                     <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
                       <div>
-                        <p className="font-bold">Email Notifications</p>
+                        <p className="font-bold">{t('notifications')}</p>
                         <p className="text-xs text-slate-500">Receive alerts about your storage</p>
                       </div>
                       <div className="w-12 h-6 bg-indigo-600 rounded-full relative cursor-pointer">
@@ -856,10 +887,10 @@ export default function App() {
                     </div>
                     <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
                       <div>
-                        <p className="font-bold">Two-Factor Authentication</p>
+                        <p className="font-bold">{t('two_factor')}</p>
                         <p className="text-xs text-slate-500">Enhance your account security</p>
                       </div>
-                      <button className="text-sm font-bold text-indigo-600">Enable</button>
+                      <button className="text-sm font-bold text-indigo-600">{t('enable')}</button>
                     </div>
                   </div>
                 </div>
@@ -870,7 +901,7 @@ export default function App() {
               {/* Breadcrumbs */}
               <div className="flex items-center gap-2 mb-8 text-sm text-slate-500">
                 <button onClick={() => setCurrentFolder(null)} className="hover:text-indigo-600 transition-colors">
-                  {activeTab === 'my-files' ? 'My Files' : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
+                  {activeTab === 'my-files' ? t('my_files') : t(activeTab)}
                 </button>
                 {currentFolder && (
                   <>
@@ -885,9 +916,9 @@ export default function App() {
                 <div className="mb-10">
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="text-lg font-bold flex items-center gap-2">
-                      <Folder className="text-amber-500" size={20} /> Folders
+                      <Folder className="text-amber-500" size={20} /> {t('folders')}
                     </h2>
-                    <button onClick={() => setShowNewFolderModal(true)} className="text-sm text-indigo-600 font-medium hover:underline">New Folder</button>
+                    <button onClick={() => setShowNewFolderModal(true)} className="text-sm text-indigo-600 font-medium hover:underline">{t('new_folder')}</button>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                     {filteredFolders.map(folder => (
@@ -913,7 +944,7 @@ export default function App() {
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-lg font-bold flex items-center gap-2">
-                    <File className="text-indigo-500" size={20} /> Files
+                    <File className="text-indigo-500" size={20} /> {t('files')}
                   </h2>
                   <div className="flex items-center gap-4 text-sm text-slate-500">
                     <span className="flex items-center gap-1"><Filter size={14} /> Sort by Date</span>
@@ -925,9 +956,9 @@ export default function App() {
                     <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-6">
                       <HardDrive className="text-slate-300" size={40} />
                     </div>
-                    <h3 className="text-xl font-bold text-slate-900 mb-2">No files found</h3>
-                    <p className="text-slate-500 mb-8">Drag and drop files here to upload</p>
-                    <button onClick={() => document.getElementById('file-upload')?.click()} className="btn-secondary">Browse Files</button>
+                    <h3 className="text-xl font-bold text-slate-900 mb-2">{t('no_files')}</h3>
+                    <p className="text-slate-500 mb-8">{t('drag_drop')}</p>
+                    <button onClick={() => document.getElementById('file-upload')?.click()} className="btn-secondary">{t('browse_files')}</button>
                   </div>
                 ) : (
                   <div className={viewMode === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6" : "space-y-3"}>
@@ -1008,8 +1039,8 @@ export default function App() {
               <div className="w-20 h-20 bg-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-indigo-200">
                 <ArrowUp className="text-white animate-bounce" size={40} />
               </div>
-              <h2 className="text-3xl font-bold text-slate-900 mb-2">Drop to upload</h2>
-              <p className="text-slate-500">Release your files to start uploading to Cloud 2.0</p>
+              <h2 className="text-3xl font-bold text-slate-900 mb-2">{t('drop_to_upload')}</h2>
+              <p className="text-slate-500">{t('release_to_start')}</p>
             </div>
           </div>
         )}
@@ -1054,11 +1085,11 @@ export default function App() {
                         <FileText size={48} />
                       </div>
                       <div>
-                        <h3 className="text-2xl font-bold mb-2">No Preview Available</h3>
-                        <p className="text-slate-500">This file type cannot be previewed directly.</p>
+                        <h3 className="text-2xl font-bold mb-2">{t('no_preview')}</h3>
+                        <p className="text-slate-500">{t('no_preview_desc')}</p>
                       </div>
                       <a href={previewFile.downloadURL} target="_blank" rel="noreferrer" className="btn-primary flex items-center gap-2">
-                        <Download size={20} /> Download File
+                        <Download size={20} /> {t('download_file')}
                       </a>
                     </div>
                   )}
@@ -1098,31 +1129,31 @@ export default function App() {
                       onClick={() => setAiChatOpen(false)}
                       className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${!aiChatOpen ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`}
                     >
-                      Details
+                      {t('details')}
                     </button>
                     <button 
                       onClick={() => setAiChatOpen(true)}
                       className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${aiChatOpen ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`}
                     >
-                      AI Chat
+                      {t('ai_chat')}
                     </button>
                   </div>
 
                   {!aiChatOpen ? (
                     <div className="space-y-6">
                       <div>
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Information</h4>
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">{t('information')}</h4>
                         <div className="space-y-3">
                           <div className="flex justify-between text-sm">
-                            <span className="text-slate-500">Type</span>
+                            <span className="text-slate-500">{t('type')}</span>
                             <span className="font-medium">{previewFile.fileType}</span>
                           </div>
                           <div className="flex justify-between text-sm">
-                            <span className="text-slate-500">Size</span>
+                            <span className="text-slate-500">{t('size')}</span>
                             <span className="font-medium">{Math.round(previewFile.fileSize / 1024)} KB</span>
                           </div>
                           <div className="flex justify-between text-sm">
-                            <span className="text-slate-500">Uploaded</span>
+                            <span className="text-slate-500">{t('uploaded')}</span>
                             <span className="font-medium">{format(new Date(previewFile.uploadDate), 'MMM d, yyyy')}</span>
                           </div>
                         </div>
@@ -1130,7 +1161,7 @@ export default function App() {
 
                       {previewFile.aiTags && previewFile.aiTags.length > 0 && (
                         <div>
-                          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">AI Tags</h4>
+                          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">{t('ai_tags')}</h4>
                           <div className="flex flex-wrap gap-2">
                             {previewFile.aiTags.map((tag: string) => (
                               <span key={tag} className="bg-indigo-50 text-indigo-600 px-3 py-1 rounded-full text-xs font-semibold">#{tag}</span>
@@ -1141,7 +1172,7 @@ export default function App() {
 
                       {previewFile.ocrText && (
                         <div>
-                          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">OCR Text</h4>
+                          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">{t('ocr_text')}</h4>
                           <div className="bg-slate-50 p-4 rounded-2xl text-sm text-slate-600 italic max-h-40 overflow-y-auto">
                             "{previewFile.ocrText}"
                           </div>
@@ -1156,7 +1187,7 @@ export default function App() {
                             <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-indigo-600">
                               <Cpu size={32} />
                             </div>
-                            <p className="text-sm text-slate-500">Ask AI anything about this file. I can summarize, analyze, and answer questions.</p>
+                            <p className="text-sm text-slate-500">{t('ask_ai_desc')}</p>
                           </div>
                         )}
                         {chatMessages.map((msg, i) => (
@@ -1179,7 +1210,7 @@ export default function App() {
                       <div className="relative">
                         <input 
                           type="text" 
-                          placeholder="Ask AI..." 
+                          placeholder={t('ask_ai')} 
                           className="w-full bg-slate-100 border-none rounded-2xl py-3 pl-4 pr-12 text-sm focus:ring-2 focus:ring-indigo-500"
                           value={chatInput}
                           onChange={(e) => setChatInput(e.target.value)}
@@ -1220,18 +1251,18 @@ export default function App() {
               <div className="w-20 h-20 bg-green-50 rounded-3xl flex items-center justify-center mx-auto mb-8 text-green-500">
                 <CheckCircle2 size={40} />
               </div>
-              <h2 className="text-3xl font-bold text-slate-900 mb-4">Request Sent!</h2>
-              <p className="text-slate-500 mb-8">Your upgrade request has been submitted successfully. Admin will review your account manually.</p>
+              <h2 className="text-3xl font-bold text-slate-900 mb-4">{t('request_sent')}</h2>
+              <p className="text-slate-500 mb-8">{t('request_sent_desc')}</p>
               
               <div className="bg-slate-50 p-6 rounded-3xl mb-8 border border-slate-100">
-                <p className="text-sm font-semibold text-slate-700 mb-4">To speed up the process, contact admin directly:</p>
+                <p className="text-sm font-semibold text-slate-700 mb-4">{t('contact_admin')}:</p>
                 <a 
                   href="https://facebook.com/admin_profile" 
                   target="_blank" 
                   rel="noreferrer"
                   className="flex items-center justify-center gap-3 bg-indigo-600 text-white py-3 rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
                 >
-                  <User size={20} /> Contact Admin
+                  <User size={20} /> {t('contact_admin')}
                 </a>
               </div>
 
@@ -1239,7 +1270,7 @@ export default function App() {
                 onClick={() => setShowUpgradeSuccess(false)}
                 className="w-full py-3 text-slate-400 font-semibold hover:text-slate-600 transition-colors"
               >
-                Close
+                {t('close')}
               </button>
             </motion.div>
           </motion.div>
@@ -1258,10 +1289,10 @@ export default function App() {
               animate={{ scale: 1, opacity: 1 }}
               className="bg-white p-8 rounded-[2rem] shadow-2xl max-w-sm w-full"
             >
-              <h3 className="text-xl font-bold mb-4">Create New Folder</h3>
+              <h3 className="text-xl font-bold mb-4">{t('new_folder')}</h3>
               <input 
                 type="text" 
-                placeholder="Folder name" 
+                placeholder={t('folder_name')} 
                 className="w-full bg-slate-100 border-none rounded-xl py-3 px-4 mb-6 focus:ring-2 focus:ring-indigo-500"
                 autoFocus
                 value={newFolderName}
@@ -1269,8 +1300,8 @@ export default function App() {
                 onKeyDown={(e) => e.key === 'Enter' && handleCreateFolder()}
               />
               <div className="flex gap-3">
-                <button onClick={() => setShowNewFolderModal(false)} className="flex-1 btn-secondary">Cancel</button>
-                <button onClick={handleCreateFolder} className="flex-1 btn-primary">Create</button>
+                <button onClick={() => setShowNewFolderModal(false)} className="flex-1 btn-secondary">{t('cancel')}</button>
+                <button onClick={handleCreateFolder} className="flex-1 btn-primary">{t('create')}</button>
               </div>
             </motion.div>
           </motion.div>
