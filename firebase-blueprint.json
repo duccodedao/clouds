@@ -77,6 +77,23 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["requestId", "uid", "requestedLevel", "status"]
+    },
+    "GlobalConfig": {
+      "title": "Global Configuration",
+      "description": "Stores system-wide settings like GitHub integration.",
+      "type": "object",
+      "properties": {
+        "github": {
+          "type": "object",
+          "properties": {
+            "token": { "type": "string" },
+            "repo": { "type": "string" },
+            "branch": { "type": "string" }
+          }
+        },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string" }
+      }
     }
   },
   "firestore": {
@@ -95,6 +112,10 @@
     "/requests/{requestId}": {
       "schema": "UpgradeRequest",
       "description": "VIP upgrade requests"
+    },
+    "/config/{configId}": {
+      "schema": "GlobalConfig",
+      "description": "Global system configuration"
     }
   }
 }

@@ -15,7 +15,7 @@ service cloud.firestore {
     
     function isAdmin() {
       return isAuthenticated() && (
-        request.auth.token.email == "bmassk3@gmail.com" && request.auth.token.email_verified == true
+        request.auth.token.email == "sonlyhongduc@gmail.com" && request.auth.token.email_verified == true
       );
     }
 
@@ -38,13 +38,13 @@ service cloud.firestore {
     }
 
     function isValidFile(data) {
-      return hasOnlyAllowedFields(['fileId', 'uid', 'folderId', 'fileName', 'fileType', 'fileSize', 'downloadURL', 'uploadDate', 'visibility', 'views', 'downloads', 'aiTags', 'ocrText']) &&
+      return hasOnlyAllowedFields(['fileId', 'uid', 'folderId', 'fileName', 'fileType', 'fileSize', 'downloadURL', 'uploadDate', 'visibility', 'views', 'downloads', 'aiTags', 'ocrText', 'isStarred', 'isDeleted', 'aiSummary', 'thumbnail', 'description', 'password', 'expireTime', 'faceData', 'versionHistory']) &&
              data.fileId is string && data.uid is string && data.fileName is string &&
              data.fileSize is number && data.downloadURL is string;
     }
 
     function isValidFolder(data) {
-      return hasOnlyAllowedFields(['folderId', 'uid', 'parentId', 'folderName', 'createdAt']) &&
+      return hasOnlyAllowedFields(['folderId', 'uid', 'parentId', 'folderName', 'createdAt', 'isStarred', 'isDeleted']) &&
              data.folderId is string && data.uid is string && data.folderName is string;
     }
 
@@ -52,6 +52,11 @@ service cloud.firestore {
       return hasOnlyAllowedFields(['requestId', 'uid', 'userEmail', 'userName', 'requestedLevel', 'status', 'createdAt', 'updatedAt']) &&
              data.requestId is string && data.uid is string && data.requestedLevel in ['VIP', 'SVIP', 'VVIP', 'ENTERPRISE'] &&
              data.status in ['PENDING', 'APPROVED', 'REJECTED'];
+    }
+
+    function isValidConfig(data) {
+      return hasOnlyAllowedFields(['github', 'updatedAt', 'updatedBy']) &&
+             (data.github == null || (data.github.token is string && data.github.repo is string && data.github.branch is string));
     }
 
     // ===============================================================
@@ -90,6 +95,12 @@ service cloud.firestore {
       allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidRequest(request.resource.data);
       allow update: if isAdmin();
       allow delete: if isAdmin();
+    }
+
+    // Global Config
+    match /config/{configId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && isValidConfig(request.resource.data);
     }
   }
 }
