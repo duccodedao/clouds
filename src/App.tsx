@@ -93,7 +93,7 @@ export default function App() {
   const [newFolderName, setNewFolderName] = useState('');
   const [requests, setRequests] = useState<UpgradeRequest[]>([]);
   const [allUsers, setAllUsers] = useState<UserData[]>([]);
-  const [githubConfig, setGithubConfig] = useState({ token: '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', repo: 'duccodedao/phuonghiepthanh', branch: 'main' });
+  const [githubConfig, setGithubConfig] = useState({ token: '', repo: '', branch: 'main' });
   const [showUpgradeSuccess, setShowUpgradeSuccess] = useState(false);
   const [language, setLanguage] = useState<'vi' | 'en'>('vi');
 
