@@ -61,6 +61,22 @@
         "isDeleted": { "type": "boolean" }
       },
       "required": ["folderId", "uid", "folderName"]
+    },
+    "UpgradeRequest": {
+      "title": "VIP Upgrade Request",
+      "description": "Stores requests for VIP level upgrades.",
+      "type": "object",
+      "properties": {
+        "requestId": { "type": "string" },
+        "uid": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "userName": { "type": "string" },
+        "requestedLevel": { "type": "string", "enum": ["VIP", "SVIP", "VVIP", "ENTERPRISE"] },
+        "status": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["requestId", "uid", "requestedLevel", "status"]
     }
   },
   "firestore": {
@@ -75,6 +91,10 @@
     "/folders/{folderId}": {
       "schema": "Folder",
       "description": "Folder structure"
+    },
+    "/requests/{requestId}": {
+      "schema": "UpgradeRequest",
+      "description": "VIP upgrade requests"
     }
   }
 }

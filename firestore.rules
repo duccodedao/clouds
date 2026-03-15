@@ -48,6 +48,12 @@ service cloud.firestore {
              data.folderId is string && data.uid is string && data.folderName is string;
     }
 
+    function isValidRequest(data) {
+      return hasOnlyAllowedFields(['requestId', 'uid', 'userEmail', 'userName', 'requestedLevel', 'status', 'createdAt', 'updatedAt']) &&
+             data.requestId is string && data.uid is string && data.requestedLevel in ['VIP', 'SVIP', 'VVIP', 'ENTERPRISE'] &&
+             data.status in ['PENDING', 'APPROVED', 'REJECTED'];
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -76,6 +82,14 @@ service cloud.firestore {
       allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidFolder(request.resource.data);
       allow update: if (isOwner(resource.data.uid) && isValidFolder(request.resource.data)) || isAdmin();
       allow delete: if isOwner(resource.data.uid) || isAdmin();
+    }
+
+    // Upgrade Requests
+    match /requests/{requestId} {
+      allow read: if isAuthenticated() && (isOwner(resource.data.uid) || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidRequest(request.resource.data);
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
     }
   }
 }

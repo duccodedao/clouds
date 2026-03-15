@@ -24,7 +24,7 @@ import { useDropzone } from 'react-dropzone';
 import confetti from 'canvas-confetti';
 import { analyzeImage, chatWithFile, semanticSearch } from './services/aiService';
 import { getDocFromServer } from 'firebase/firestore';
-import { UserData, FileData, FolderData } from './types';
+import { UserData, FileData, FolderData, UpgradeRequest } from './types';
 
 // --- Constants & Types ---
 
@@ -90,6 +90,10 @@ export default function App() {
   const [appError, setAppError] = useState<string | null>(null);
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [requests, setRequests] = useState<UpgradeRequest[]>([]);
+  const [allUsers, setAllUsers] = useState<UserData[]>([]);
+  const [githubConfig, setGithubConfig] = useState({ token: '', repo: '', branch: 'main' });
+  const [showUpgradeSuccess, setShowUpgradeSuccess] = useState(false);
 
   const handleError = (error: any, op: string, path: string | null) => {
     console.error(`Error during ${op} on ${path}:`, error);
@@ -168,6 +172,28 @@ export default function App() {
       unsubscribeFolders();
     };
   }, [user]);
+
+  const isAdmin = useMemo(() => user && (ADMIN_UIDS.includes(user.uid) || ADMIN_EMAILS.includes(user.email || '')), [user]);
+
+  // Admin Listeners
+  useEffect(() => {
+    if (!user || !isAdmin) return;
+
+    const requestsQuery = query(collection(db, 'requests'));
+    const unsubscribeRequests = onSnapshot(requestsQuery, (snapshot) => {
+      setRequests(snapshot.docs.map(doc => ({ ...doc.data(), requestId: doc.id })) as any as UpgradeRequest[]);
+    }, (error) => handleError(error, 'LIST', 'requests'));
+
+    const usersQuery = query(collection(db, 'users'));
+    const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
+      setAllUsers(snapshot.docs.map(doc => doc.data()) as UserData[]);
+    }, (error) => handleError(error, 'LIST', 'users'));
+
+    return () => {
+      unsubscribeRequests();
+      unsubscribeUsers();
+    };
+  }, [user, isAdmin]);
 
   // Handlers
   const handleLogin = async () => {
@@ -258,25 +284,6 @@ export default function App() {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop } as any);
 
-  const handleCreateFolder = async () => {
-    if (!newFolderName.trim() || !user) return;
-    
-    const folderId = Math.random().toString(36).substring(7);
-    try {
-      await setDoc(doc(db, 'folders', folderId), {
-        folderId,
-        uid: user.uid,
-        parentId: currentFolder,
-        folderName: newFolderName.trim(),
-        createdAt: new Date().toISOString()
-      });
-      setShowNewFolderModal(false);
-      setNewFolderName('');
-    } catch (error) {
-      handleError(error, 'WRITE', 'folders');
-    }
-  };
-
   const handleDeleteFile = async (file: FileData) => {
     if (!window.confirm(`Delete ${file.fileName}?`)) return;
     try {
@@ -310,16 +317,78 @@ export default function App() {
     }
   };
 
+  const handleRequestUpgrade = async (level: string) => {
+    if (!user) return;
+    const requestId = Math.random().toString(36).substring(7);
+    try {
+      await setDoc(doc(db, 'requests', requestId), {
+        requestId,
+        uid: user.uid,
+        userEmail: user.email,
+        userName: user.displayName,
+        requestedLevel: level,
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      setShowUpgradeSuccess(true);
+      confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+    } catch (error) {
+      handleError(error, 'WRITE', 'requests');
+    }
+  };
+
+  const handleApproveRequest = async (request: UpgradeRequest) => {
+    try {
+      const tier = STORAGE_TIERS[request.requestedLevel];
+      await updateDoc(doc(db, 'users', request.uid), {
+        vipLevel: request.requestedLevel,
+        storageLimit: tier.limit
+      });
+      await updateDoc(doc(db, 'requests', request.requestId), {
+        status: 'APPROVED',
+        updatedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      handleError(error, 'UPDATE', 'users/requests');
+    }
+  };
+
+  const handleRejectRequest = async (requestId: string) => {
+    try {
+      await updateDoc(doc(db, 'requests', requestId), {
+        status: 'REJECTED',
+        updatedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      handleError(error, 'UPDATE', 'requests');
+    }
+  };
+
   const handleDeletePermanently = async (file: FileData) => {
-    if (!window.confirm(`Permanently delete ${file.fileName}? This cannot be undone.`)) return;
     try {
       await deleteDoc(doc(db, 'files', file.fileId));
-      await updateDoc(doc(db, 'users', user.uid), {
-        storageUsed: increment(-file.fileSize)
-      });
       setPreviewFile(null);
     } catch (error) {
       handleError(error, 'DELETE', 'files');
+    }
+  };
+
+  const handleCreateFolder = async () => {
+    if (!user || !newFolderName.trim()) return;
+    const folderId = Math.random().toString(36).substring(7);
+    try {
+      await setDoc(doc(db, 'folders', folderId), {
+        folderId,
+        uid: user.uid,
+        name: newFolderName.trim(),
+        parentId: currentFolder,
+        createdAt: new Date().toISOString()
+      });
+      setNewFolderName('');
+      setShowNewFolderModal(false);
+    } catch (error) {
+      handleError(error, 'WRITE', 'folders');
     }
   };
 
@@ -584,7 +653,7 @@ export default function App() {
             <div className="max-w-4xl mx-auto py-10">
               <div className="text-center mb-12">
                 <h1 className="text-4xl font-bold mb-4">Upgrade to Premium</h1>
-                <p className="text-slate-500">Get more storage, AI features, and faster speeds.</p>
+                <p className="text-slate-500">Get more storage, AI features, and faster speeds. Request an upgrade and admin will review it.</p>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                 {Object.entries(STORAGE_TIERS).map(([key, tier]) => (
@@ -598,41 +667,202 @@ export default function App() {
                       <li className="flex items-center gap-2"><Check size={16} className="text-green-500" /> AI Analysis</li>
                       <li className="flex items-center gap-2"><Check size={16} className="text-green-500" /> Priority Support</li>
                     </ul>
-                    <button className={`w-full py-3 rounded-2xl font-semibold transition-all ${userData?.vipLevel === key ? 'bg-slate-100 text-slate-400 cursor-default' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-100'}`}>
-                      {userData?.vipLevel === key ? 'Current Plan' : 'Upgrade Now'}
+                    <button 
+                      onClick={() => userData?.vipLevel !== key && handleRequestUpgrade(key)}
+                      className={`w-full py-3 rounded-2xl font-semibold transition-all ${userData?.vipLevel === key ? 'bg-slate-100 text-slate-400 cursor-default' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-100 active:scale-95'}`}
+                    >
+                      {userData?.vipLevel === key ? 'Current Plan' : 'Request Upgrade'}
                     </button>
                   </div>
                 ))}
               </div>
+              
+              {requests.some(r => r.uid === user.uid && r.status === 'PENDING') && (
+                <div className="mt-12 p-6 bg-amber-50 rounded-3xl border border-amber-100 flex items-center gap-4">
+                  <div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center text-amber-600">
+                    <Clock size={24} />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-amber-900">Pending Request</h4>
+                    <p className="text-sm text-amber-700">You have a pending upgrade request. Admin will review it shortly.</p>
+                  </div>
+                </div>
+              )}
             </div>
           ) : activeTab === 'admin' ? (
-            <div className="p-6">
-              <h1 className="text-2xl font-bold mb-6">Admin Dashboard</h1>
-              <div className="bg-white rounded-[2rem] border border-slate-100 overflow-hidden">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                    <tr>
-                      <th className="px-6 py-4">User</th>
-                      <th className="px-6 py-4">Plan</th>
-                      <th className="px-6 py-4">Storage</th>
-                      <th className="px-6 py-4">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    <tr className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 flex items-center gap-3">
-                        <div className="w-8 h-8 bg-indigo-100 rounded-lg" />
-                        <div>
-                          <p className="font-medium">{user.displayName}</p>
-                          <p className="text-xs text-slate-400">{user.email}</p>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-sm">{userData?.vipLevel}</td>
-                      <td className="px-6 py-4 text-sm">{Math.round((userData?.storageUsed || 0) / (1024**2))} MB</td>
-                      <td className="px-6 py-4"><span className="px-2 py-1 bg-green-100 text-green-600 rounded-full text-[10px] font-bold uppercase">Active</span></td>
-                    </tr>
-                  </tbody>
-                </table>
+            <div className="p-6 space-y-10">
+              <div>
+                <h1 className="text-2xl font-bold mb-6 flex items-center gap-2"><Crown className="text-amber-500" /> Upgrade Requests</h1>
+                <div className="bg-white rounded-[2rem] border border-slate-100 overflow-hidden shadow-sm">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      <tr>
+                        <th className="px-6 py-4">User</th>
+                        <th className="px-6 py-4">Requested Level</th>
+                        <th className="px-6 py-4">Date</th>
+                        <th className="px-6 py-4">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {requests.filter(r => r.status === 'PENDING').length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="px-6 py-10 text-center text-slate-400 italic">No pending requests</td>
+                        </tr>
+                      ) : (
+                        requests.filter(r => r.status === 'PENDING').map(req => (
+                          <tr key={req.requestId} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-6 py-4">
+                              <p className="font-medium">{req.userName}</p>
+                              <p className="text-xs text-slate-400">{req.userEmail}</p>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-xs font-bold">{req.requestedLevel}</span>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-slate-500">
+                              {format(new Date(req.createdAt), 'MMM d, HH:mm')}
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex gap-2">
+                                <button 
+                                  onClick={() => handleApproveRequest(req)}
+                                  className="p-2 bg-green-50 text-green-600 hover:bg-green-100 rounded-lg transition-colors"
+                                  title="Approve"
+                                >
+                                  <Check size={18} />
+                                </button>
+                                <button 
+                                  onClick={() => handleRejectRequest(req.requestId)}
+                                  className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-colors"
+                                  title="Reject"
+                                >
+                                  <X size={18} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <h1 className="text-2xl font-bold mb-6 flex items-center gap-2"><User className="text-indigo-500" /> All Users</h1>
+                <div className="bg-white rounded-[2rem] border border-slate-100 overflow-hidden shadow-sm">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      <tr>
+                        <th className="px-6 py-4">User</th>
+                        <th className="px-6 py-4">Plan</th>
+                        <th className="px-6 py-4">Storage</th>
+                        <th className="px-6 py-4">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {allUsers.map(u => (
+                        <tr key={u.uid} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-6 py-4 flex items-center gap-3">
+                            <img src={u.photoURL} className="w-8 h-8 rounded-lg" alt="" />
+                            <div>
+                              <p className="font-medium">{u.displayName}</p>
+                              <p className="text-xs text-slate-400">{u.email}</p>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-sm font-semibold text-indigo-600">{u.vipLevel}</td>
+                          <td className="px-6 py-4 text-sm">
+                            <div className="w-32 h-1.5 bg-slate-100 rounded-full overflow-hidden mb-1">
+                              <div 
+                                className="h-full bg-indigo-500" 
+                                style={{ width: `${Math.min(100, (u.storageUsed / u.storageLimit) * 100)}%` }} 
+                              />
+                            </div>
+                            <p className="text-[10px] text-slate-400">{Math.round(u.storageUsed / (1024**2))} MB / {u.storageLimit / (1024**3)} GB</p>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${u.accountStatus === 'ACTIVE' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                              {u.accountStatus}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : activeTab === 'settings' ? (
+            <div className="max-w-2xl mx-auto py-10">
+              <h1 className="text-3xl font-bold mb-8">Settings</h1>
+              
+              <div className="space-y-8">
+                <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                  <h3 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800">
+                    <div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center text-white">
+                      <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+                    </div>
+                    GitHub Configuration
+                  </h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Personal Access Token</label>
+                      <input 
+                        type="password" 
+                        placeholder="ghp_xxxxxxxxxxxx"
+                        className="w-full bg-slate-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-indigo-500"
+                        value={githubConfig.token}
+                        onChange={(e) => setGithubConfig({...githubConfig, token: e.target.value})}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">Repository</label>
+                        <input 
+                          type="text" 
+                          placeholder="username/repo"
+                          className="w-full bg-slate-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-indigo-500"
+                          value={githubConfig.repo}
+                          onChange={(e) => setGithubConfig({...githubConfig, repo: e.target.value})}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">Branch</label>
+                        <input 
+                          type="text" 
+                          placeholder="main"
+                          className="w-full bg-slate-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-indigo-500"
+                          value={githubConfig.branch}
+                          onChange={(e) => setGithubConfig({...githubConfig, branch: e.target.value})}
+                        />
+                      </div>
+                    </div>
+                    <button className="btn-primary w-full mt-4">Save Configuration</button>
+                  </div>
+                </div>
+
+                <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                  <h3 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800">
+                    <User className="text-indigo-600" /> Account Settings
+                  </h3>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
+                      <div>
+                        <p className="font-bold">Email Notifications</p>
+                        <p className="text-xs text-slate-500">Receive alerts about your storage</p>
+                      </div>
+                      <div className="w-12 h-6 bg-indigo-600 rounded-full relative cursor-pointer">
+                        <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full shadow-sm" />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
+                      <div>
+                        <p className="font-bold">Two-Factor Authentication</p>
+                        <p className="text-xs text-slate-500">Enhance your account security</p>
+                      </div>
+                      <button className="text-sm font-bold text-indigo-600">Enable</button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           ) : (
@@ -972,7 +1202,49 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* New Folder Modal */}
+      {/* Upgrade Success Modal */}
+      <AnimatePresence>
+        {showUpgradeSuccess && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[200] flex items-center justify-center p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              className="bg-white p-10 rounded-[3rem] shadow-2xl max-w-md w-full text-center relative overflow-hidden"
+            >
+              <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
+              <div className="w-20 h-20 bg-green-50 rounded-3xl flex items-center justify-center mx-auto mb-8 text-green-500">
+                <CheckCircle2 size={40} />
+              </div>
+              <h2 className="text-3xl font-bold text-slate-900 mb-4">Request Sent!</h2>
+              <p className="text-slate-500 mb-8">Your upgrade request has been submitted successfully. Admin will review your account manually.</p>
+              
+              <div className="bg-slate-50 p-6 rounded-3xl mb-8 border border-slate-100">
+                <p className="text-sm font-semibold text-slate-700 mb-4">To speed up the process, contact admin directly:</p>
+                <a 
+                  href="https://facebook.com/admin_profile" 
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="flex items-center justify-center gap-3 bg-indigo-600 text-white py-3 rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+                >
+                  <User size={20} /> Contact Admin
+                </a>
+              </div>
+
+              <button 
+                onClick={() => setShowUpgradeSuccess(false)}
+                className="w-full py-3 text-slate-400 font-semibold hover:text-slate-600 transition-colors"
+              >
+                Close
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <AnimatePresence>
         {showNewFolderModal && (
           <motion.div 

@@ -38,3 +38,14 @@ export interface FolderData {
   isStarred?: boolean;
   isDeleted?: boolean;
 }
+
+export interface UpgradeRequest {
+  requestId: string;
+  uid: string;
+  userEmail: string;
+  userName: string;
+  requestedLevel: 'VIP' | 'SVIP' | 'VVIP' | 'ENTERPRISE';
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  createdAt: string;
+  updatedAt: string;
+}
