@@ -15,7 +15,8 @@ import {
   Search, HardDrive, Image as ImageIcon, Share2, Trash2, Star, Settings, 
   Plus, Folder, File, FileText, Video, Music, MoreVertical, Download, 
   Eye, X, Send, Cpu, Shield, Zap, Crown, LogOut, Menu, ChevronRight,
-  LayoutGrid, List, Filter, ArrowUp, Clock, User, CheckCircle2, AlertCircle
+  LayoutGrid, List, Filter, ArrowUp, Clock, User, CheckCircle2, AlertCircle,
+  RotateCcw, Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
@@ -27,12 +28,14 @@ import { UserData, FileData, FolderData } from './types';
 
 // --- Constants & Types ---
 
+const ADMIN_EMAILS = ["bmassk3@gmail.com"];
+
 const STORAGE_TIERS = {
-  USER: { limit: 1024 * 1024 * 1024, label: 'Standard', color: 'bg-slate-500' },
-  VIP: { limit: 10 * 1024 * 1024 * 1024, label: 'VIP', color: 'bg-indigo-500' },
-  SVIP: { limit: 50 * 1024 * 1024 * 1024, label: 'SVIP', color: 'bg-purple-500' },
-  VVIP: { limit: 200 * 1024 * 1024 * 1024, label: 'VVIP', color: 'bg-amber-500' },
-  ENTERPRISE: { limit: 1000 * 1024 * 1024 * 1024, label: 'Enterprise', color: 'bg-emerald-500' },
+  USER: { limit: 1024 * 1024 * 1024, label: 'Standard', color: 'bg-slate-500', price: 0 },
+  VIP: { limit: 10 * 1024 * 1024 * 1024, label: 'VIP', color: 'bg-indigo-500', price: 9.99 },
+  SVIP: { limit: 50 * 1024 * 1024 * 1024, label: 'SVIP', color: 'bg-purple-500', price: 19.99 },
+  VVIP: { limit: 200 * 1024 * 1024 * 1024, label: 'VVIP', color: 'bg-amber-500', price: 49.99 },
+  ENTERPRISE: { limit: 1000 * 1024 * 1024 * 1024, label: 'Enterprise', color: 'bg-emerald-500', price: 99.99 },
 };
 
 const ADMIN_UIDS = ["VYIs9XHLR9RMStwtcdwMrOIo33w1"];
@@ -150,14 +153,14 @@ export default function App() {
     
     const filesQuery = query(collection(db, 'files'), where('uid', '==', user.uid));
     const unsubscribeFiles = onSnapshot(filesQuery, (snapshot) => {
-      const f = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setFiles(f as FileData[]);
+      const f = snapshot.docs.map(doc => ({ ...doc.data(), fileId: doc.id }));
+      setFiles(f as any as FileData[]);
     }, (error) => handleError(error, 'LIST', 'files'));
 
     const foldersQuery = query(collection(db, 'folders'), where('uid', '==', user.uid));
     const unsubscribeFolders = onSnapshot(foldersQuery, (snapshot) => {
-      const fo = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setFolders(fo as FolderData[]);
+      const fo = snapshot.docs.map(doc => ({ ...doc.data(), folderId: doc.id }));
+      setFolders(fo as any as FolderData[]);
     }, (error) => handleError(error, 'LIST', 'folders'));
 
     return () => {
@@ -274,10 +277,43 @@ export default function App() {
     }
   };
 
-  const handleDeleteFile = async (file: any) => {
+  const handleDeleteFile = async (file: FileData) => {
     if (!window.confirm(`Delete ${file.fileName}?`)) return;
     try {
-      await deleteDoc(doc(db, 'files', file.id));
+      await deleteDoc(doc(db, 'files', file.fileId));
+      await updateDoc(doc(db, 'users', user.uid), {
+        storageUsed: increment(-file.fileSize)
+      });
+      setPreviewFile(null);
+    } catch (error) {
+      handleError(error, 'DELETE', 'files');
+    }
+  };
+
+  const handleToggleStar = async (file: FileData) => {
+    try {
+      await updateDoc(doc(db, 'files', file.fileId), {
+        isStarred: !file.isStarred
+      });
+    } catch (error) {
+      handleError(error, 'UPDATE', 'files');
+    }
+  };
+
+  const handleToggleTrash = async (file: FileData) => {
+    try {
+      await updateDoc(doc(db, 'files', file.fileId), {
+        isDeleted: !file.isDeleted
+      });
+    } catch (error) {
+      handleError(error, 'UPDATE', 'files');
+    }
+  };
+
+  const handleDeletePermanently = async (file: FileData) => {
+    if (!window.confirm(`Permanently delete ${file.fileName}? This cannot be undone.`)) return;
+    try {
+      await deleteDoc(doc(db, 'files', file.fileId));
       await updateDoc(doc(db, 'users', user.uid), {
         storageUsed: increment(-file.fileSize)
       });
@@ -310,7 +346,21 @@ export default function App() {
   };
 
   const filteredFiles = useMemo(() => {
-    let f = files.filter(file => file.folderId === currentFolder);
+    let f = files;
+    
+    // Filter by tab
+    if (activeTab === 'my-files') {
+      f = f.filter(file => file.folderId === currentFolder && !file.isDeleted);
+    } else if (activeTab === 'photos') {
+      f = f.filter(file => file.fileType.startsWith('image/') && !file.isDeleted);
+    } else if (activeTab === 'starred') {
+      f = f.filter(file => file.isStarred && !file.isDeleted);
+    } else if (activeTab === 'trash') {
+      f = f.filter(file => file.isDeleted);
+    } else if (activeTab === 'shared') {
+      f = f.filter(file => file.visibility === 'PUBLIC' && !file.isDeleted);
+    }
+
     if (searchQuery) {
       f = f.filter(file => 
         file.fileName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -319,11 +369,12 @@ export default function App() {
       );
     }
     return f;
-  }, [files, currentFolder, searchQuery]);
+  }, [files, currentFolder, searchQuery, activeTab]);
 
   const filteredFolders = useMemo(() => {
-    return folders.filter(folder => folder.parentId === currentFolder);
-  }, [folders, currentFolder]);
+    if (activeTab !== 'my-files') return [];
+    return folders.filter(folder => folder.parentId === currentFolder && !folder.isDeleted);
+  }, [folders, currentFolder, activeTab]);
 
   if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50">
     <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600"></div>
@@ -425,7 +476,7 @@ export default function App() {
               <div className={`sidebar-item ${activeTab === 'vip' ? 'active' : ''}`} onClick={() => setActiveTab('vip')}>
                 <Crown size={20} className="text-amber-500" /> Upgrade VIP
               </div>
-              {ADMIN_UIDS.includes(user.uid) && (
+              {(ADMIN_UIDS.includes(user.uid) || ADMIN_EMAILS.includes(user.email || '')) && (
                 <div className={`sidebar-item ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>
                   <Shield size={20} className="text-red-500" /> Admin Panel
                 </div>
@@ -529,128 +580,195 @@ export default function App() {
             </div>
           )}
 
-          {/* Breadcrumbs */}
-          <div className="flex items-center gap-2 mb-8 text-sm text-slate-500">
-            <button onClick={() => setCurrentFolder(null)} className="hover:text-indigo-600 transition-colors">My Files</button>
-            {currentFolder && (
-              <>
-                <ChevronRight size={14} />
-                <span className="text-slate-900 font-medium">{folders.find(f => f.folderId === currentFolder)?.folderName}</span>
-              </>
-            )}
-          </div>
-
-          {/* Folders Section */}
-          {filteredFolders.length > 0 && (
-            <div className="mb-10">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold flex items-center gap-2">
-                  <Folder className="text-amber-500" size={20} /> Folders
-                </h2>
-                <button onClick={() => setShowNewFolderModal(true)} className="text-sm text-indigo-600 font-medium hover:underline">New Folder</button>
+          {activeTab === 'vip' ? (
+            <div className="max-w-4xl mx-auto py-10">
+              <div className="text-center mb-12">
+                <h1 className="text-4xl font-bold mb-4">Upgrade to Premium</h1>
+                <p className="text-slate-500">Get more storage, AI features, and faster speeds.</p>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                {filteredFolders.map(folder => (
-                  <div 
-                    key={folder.id}
-                    onClick={() => setCurrentFolder(folder.folderId)}
-                    className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all cursor-pointer flex items-center gap-3 group"
-                  >
-                    <div className="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center text-amber-500 group-hover:scale-110 transition-transform">
-                      <Folder size={24} fill="currentColor" fillOpacity={0.2} />
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                {Object.entries(STORAGE_TIERS).map(([key, tier]) => (
+                  <div key={key} className={`bg-white p-8 rounded-[2.5rem] border-2 transition-all ${userData?.vipLevel === key ? 'border-indigo-600 shadow-xl' : 'border-slate-100'}`}>
+                    <div className="mb-6">
+                      <h3 className="text-xl font-bold mb-1">{key}</h3>
+                      <p className="text-3xl font-bold">${tier.price}<span className="text-sm text-slate-400 font-normal">/mo</span></p>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold truncate">{folder.folderName}</p>
-                      <p className="text-xs text-slate-400">Folder</p>
-                    </div>
+                    <ul className="space-y-4 mb-8 text-sm text-slate-600">
+                      <li className="flex items-center gap-2"><Check size={16} className="text-green-500" /> {tier.limit / (1024**3)}GB Storage</li>
+                      <li className="flex items-center gap-2"><Check size={16} className="text-green-500" /> AI Analysis</li>
+                      <li className="flex items-center gap-2"><Check size={16} className="text-green-500" /> Priority Support</li>
+                    </ul>
+                    <button className={`w-full py-3 rounded-2xl font-semibold transition-all ${userData?.vipLevel === key ? 'bg-slate-100 text-slate-400 cursor-default' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-100'}`}>
+                      {userData?.vipLevel === key ? 'Current Plan' : 'Upgrade Now'}
+                    </button>
                   </div>
                 ))}
               </div>
             </div>
-          )}
-
-          {/* Files Section */}
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold flex items-center gap-2">
-                <File className="text-indigo-500" size={20} /> Files
-              </h2>
-              <div className="flex items-center gap-4 text-sm text-slate-500">
-                <span className="flex items-center gap-1"><Filter size={14} /> Sort by Date</span>
+          ) : activeTab === 'admin' ? (
+            <div className="p-6">
+              <h1 className="text-2xl font-bold mb-6">Admin Dashboard</h1>
+              <div className="bg-white rounded-[2rem] border border-slate-100 overflow-hidden">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    <tr>
+                      <th className="px-6 py-4">User</th>
+                      <th className="px-6 py-4">Plan</th>
+                      <th className="px-6 py-4">Storage</th>
+                      <th className="px-6 py-4">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    <tr className="hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-4 flex items-center gap-3">
+                        <div className="w-8 h-8 bg-indigo-100 rounded-lg" />
+                        <div>
+                          <p className="font-medium">{user.displayName}</p>
+                          <p className="text-xs text-slate-400">{user.email}</p>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-sm">{userData?.vipLevel}</td>
+                      <td className="px-6 py-4 text-sm">{Math.round((userData?.storageUsed || 0) / (1024**2))} MB</td>
+                      <td className="px-6 py-4"><span className="px-2 py-1 bg-green-100 text-green-600 rounded-full text-[10px] font-bold uppercase">Active</span></td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
-
-            {filteredFiles.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[2.5rem] border-2 border-dashed border-slate-200">
-                <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-6">
-                  <HardDrive className="text-slate-300" size={40} />
-                </div>
-                <h3 className="text-xl font-bold text-slate-900 mb-2">No files found</h3>
-                <p className="text-slate-500 mb-8">Drag and drop files here to upload</p>
-                <button onClick={() => document.getElementById('file-upload')?.click()} className="btn-secondary">Browse Files</button>
+          ) : (
+            <>
+              {/* Breadcrumbs */}
+              <div className="flex items-center gap-2 mb-8 text-sm text-slate-500">
+                <button onClick={() => setCurrentFolder(null)} className="hover:text-indigo-600 transition-colors">
+                  {activeTab === 'my-files' ? 'My Files' : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
+                </button>
+                {currentFolder && (
+                  <>
+                    <ChevronRight size={14} />
+                    <span className="text-slate-900 font-medium">{folders.find(f => f.folderId === currentFolder)?.folderName}</span>
+                  </>
+                )}
               </div>
-            ) : (
-              <div className={viewMode === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6" : "space-y-3"}>
-                {filteredFiles.map(file => (
-                  <motion.div 
-                    layout
-                    key={file.id}
-                    onClick={() => setPreviewFile(file)}
-                    className={viewMode === 'grid' ? "file-card" : "bg-white p-4 rounded-2xl border border-slate-100 flex items-center gap-4 hover:shadow-md transition-all cursor-pointer"}
-                  >
-                    {viewMode === 'grid' ? (
-                      <>
-                        <div className="aspect-square rounded-xl bg-slate-50 mb-4 flex items-center justify-center overflow-hidden relative group-hover:bg-slate-100 transition-colors">
-                          {file.fileType.startsWith('image/') ? (
-                            <img src={file.downloadURL} className="w-full h-full object-cover" alt={file.fileName} referrerPolicy="no-referrer" />
-                          ) : file.fileType.startsWith('video/') ? (
-                            <Video className="text-indigo-400" size={40} />
-                          ) : file.fileType.startsWith('audio/') ? (
-                            <Music className="text-purple-400" size={40} />
-                          ) : (
-                            <FileText className="text-slate-400" size={40} />
-                          )}
-                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-all" />
-                        </div>
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold truncate text-slate-900">{file.fileName}</p>
-                            <p className="text-xs text-slate-400">{Math.round(file.fileSize / 1024)} KB • {format(new Date(file.uploadDate), 'MMM d, yyyy')}</p>
-                          </div>
-                          <button className="p-1 hover:bg-slate-100 rounded-lg text-slate-400">
-                            <MoreVertical size={16} />
-                          </button>
-                        </div>
-                        {file.aiTags && file.aiTags.length > 0 && (
-                          <div className="mt-3 flex flex-wrap gap-1">
-                            {file.aiTags.slice(0, 2).map((tag: string) => (
-                              <span key={tag} className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-medium">#{tag}</span>
-                            ))}
-                            {file.aiTags.length > 2 && <span className="text-[10px] text-slate-400">+{file.aiTags.length - 2}</span>}
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center shrink-0">
-                          {file.fileType.startsWith('image/') ? <ImageIcon className="text-indigo-400" size={24} /> : <FileText className="text-slate-400" size={24} />}
+
+              {/* Folders Section */}
+              {filteredFolders.length > 0 && (
+                <div className="mb-10">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-bold flex items-center gap-2">
+                      <Folder className="text-amber-500" size={20} /> Folders
+                    </h2>
+                    <button onClick={() => setShowNewFolderModal(true)} className="text-sm text-indigo-600 font-medium hover:underline">New Folder</button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                    {filteredFolders.map(folder => (
+                      <div 
+                        key={folder.id}
+                        onClick={() => setCurrentFolder(folder.folderId)}
+                        className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all cursor-pointer flex items-center gap-3 group"
+                      >
+                        <div className="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center text-amber-500 group-hover:scale-110 transition-transform">
+                          <Folder size={24} fill="currentColor" fillOpacity={0.2} />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold truncate">{file.fileName}</p>
-                          <p className="text-xs text-slate-400">{file.fileType} • {Math.round(file.fileSize / 1024)} KB</p>
+                          <p className="font-semibold truncate">{folder.folderName}</p>
+                          <p className="text-xs text-slate-400">Folder</p>
                         </div>
-                        <div className="text-xs text-slate-400 hidden md:block">{format(new Date(file.uploadDate), 'MMM d, yyyy HH:mm')}</div>
-                        <div className="flex items-center gap-2">
-                          <button className="p-2 hover:bg-slate-100 rounded-xl text-slate-400"><Download size={18} /></button>
-                          <button className="p-2 hover:bg-slate-100 rounded-xl text-slate-400"><MoreVertical size={18} /></button>
-                        </div>
-                      </>
-                    )}
-                  </motion.div>
-                ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Files Section */}
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-bold flex items-center gap-2">
+                    <File className="text-indigo-500" size={20} /> Files
+                  </h2>
+                  <div className="flex items-center gap-4 text-sm text-slate-500">
+                    <span className="flex items-center gap-1"><Filter size={14} /> Sort by Date</span>
+                  </div>
+                </div>
+
+                {filteredFiles.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[2.5rem] border-2 border-dashed border-slate-200">
+                    <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-6">
+                      <HardDrive className="text-slate-300" size={40} />
+                    </div>
+                    <h3 className="text-xl font-bold text-slate-900 mb-2">No files found</h3>
+                    <p className="text-slate-500 mb-8">Drag and drop files here to upload</p>
+                    <button onClick={() => document.getElementById('file-upload')?.click()} className="btn-secondary">Browse Files</button>
+                  </div>
+                ) : (
+                  <div className={viewMode === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6" : "space-y-3"}>
+                    {filteredFiles.map(file => (
+                      <motion.div 
+                        layout
+                        key={file.id}
+                        onClick={() => setPreviewFile(file)}
+                        className={viewMode === 'grid' ? "file-card" : "bg-white p-4 rounded-2xl border border-slate-100 flex items-center gap-4 hover:shadow-md transition-all cursor-pointer"}
+                      >
+                        {viewMode === 'grid' ? (
+                          <>
+                            <div className="aspect-square rounded-xl bg-slate-50 mb-4 flex items-center justify-center overflow-hidden relative group-hover:bg-slate-100 transition-colors">
+                              {file.fileType.startsWith('image/') ? (
+                                <img src={file.downloadURL} className="w-full h-full object-cover" alt={file.fileName} referrerPolicy="no-referrer" />
+                              ) : file.fileType.startsWith('video/') ? (
+                                <Video className="text-indigo-400" size={40} />
+                              ) : file.fileType.startsWith('audio/') ? (
+                                <Music className="text-purple-400" size={40} />
+                              ) : (
+                                <FileText className="text-slate-400" size={40} />
+                              )}
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-all" />
+                              {file.isStarred && (
+                                <div className="absolute top-2 right-2 text-amber-500 drop-shadow-sm">
+                                  <Star size={16} fill="currentColor" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="font-semibold truncate text-slate-900">{file.fileName}</p>
+                                <p className="text-xs text-slate-400">{Math.round(file.fileSize / 1024)} KB • {format(new Date(file.uploadDate), 'MMM d, yyyy')}</p>
+                              </div>
+                              <button className="p-1 hover:bg-slate-100 rounded-lg text-slate-400">
+                                <MoreVertical size={16} />
+                              </button>
+                            </div>
+                            {file.aiTags && file.aiTags.length > 0 && (
+                              <div className="mt-3 flex flex-wrap gap-1">
+                                {file.aiTags.slice(0, 2).map((tag: string) => (
+                                  <span key={tag} className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-medium">#{tag}</span>
+                                ))}
+                                {file.aiTags.length > 2 && <span className="text-[10px] text-slate-400">+{file.aiTags.length - 2}</span>}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center shrink-0">
+                              {file.fileType.startsWith('image/') ? <ImageIcon className="text-indigo-400" size={24} /> : <FileText className="text-slate-400" size={24} />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold truncate">{file.fileName}</p>
+                              <p className="text-xs text-slate-400">{file.fileType} • {Math.round(file.fileSize / 1024)} KB</p>
+                            </div>
+                            <div className="text-xs text-slate-400 hidden md:block">{format(new Date(file.uploadDate), 'MMM d, yyyy HH:mm')}</div>
+                            <div className="flex items-center gap-2">
+                              {file.isStarred && <Star size={18} className="text-amber-500" fill="currentColor" />}
+                              <button className="p-2 hover:bg-slate-100 rounded-xl text-slate-400"><Download size={18} /></button>
+                              <button className="p-2 hover:bg-slate-100 rounded-xl text-slate-400"><MoreVertical size={18} /></button>
+                            </div>
+                          </>
+                        )}
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </>
+          )}
         </div>
 
         {/* Drag Overlay */}
@@ -718,9 +836,27 @@ export default function App() {
 
                 <div className="p-6 bg-white/50 backdrop-blur flex items-center justify-center gap-4">
                   <button className="p-3 bg-white hover:bg-slate-50 rounded-2xl shadow-sm text-slate-600 transition-all"><Share2 size={20} /></button>
-                  <button className="p-3 bg-white hover:bg-slate-50 rounded-2xl shadow-sm text-slate-600 transition-all"><Star size={20} /></button>
+                  <button 
+                    onClick={() => handleToggleStar(previewFile)}
+                    className={`p-3 bg-white hover:bg-slate-50 rounded-2xl shadow-sm transition-all ${previewFile.isStarred ? 'text-amber-500' : 'text-slate-600'}`}
+                  >
+                    <Star size={20} fill={previewFile.isStarred ? "currentColor" : "none"} />
+                  </button>
                   <a href={previewFile.downloadURL} download className="p-3 bg-white hover:bg-slate-50 rounded-2xl shadow-sm text-slate-600 transition-all"><Download size={20} /></a>
-                  <button onClick={() => handleDeleteFile(previewFile)} className="p-3 bg-white hover:bg-red-50 rounded-2xl shadow-sm text-red-500 transition-all"><Trash2 size={20} /></button>
+                  {previewFile.isDeleted ? (
+                    <>
+                      <button onClick={() => handleToggleTrash(previewFile)} className="p-3 bg-white hover:bg-green-50 rounded-2xl shadow-sm text-green-600 transition-all">
+                        <RotateCcw size={20} />
+                      </button>
+                      <button onClick={() => handleDeletePermanently(previewFile)} className="p-3 bg-white hover:bg-red-50 rounded-2xl shadow-sm text-red-500 transition-all">
+                        <Trash2 size={20} />
+                      </button>
+                    </>
+                  ) : (
+                    <button onClick={() => handleToggleTrash(previewFile)} className="p-3 bg-white hover:bg-red-50 rounded-2xl shadow-sm text-red-500 transition-all">
+                      <Trash2 size={20} />
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -868,7 +1004,6 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
-      </div>
     </div>
   );
 }
