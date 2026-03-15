@@ -1,10 +1,11 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
 
 import * as React from 'react';
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
   auth, db, storage, googleProvider, 
   signInWithPopup, signOut, onAuthStateChanged,
@@ -22,12 +23,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
 import { useDropzone } from 'react-dropzone';
 import confetti from 'canvas-confetti';
-import { analyzeImage, chatWithFile, semanticSearch } from './services/aiService';
+import { analyzeImage, chatWithFile } from './services/aiService';
 import { getDocFromServer } from 'firebase/firestore';
-import { UserData, FileData, FolderData, UpgradeRequest } from './types';
 import { translations } from './translations';
 
-// --- Constants & Types ---
+// --- Constants ---
 
 const ADMIN_EMAILS = ["sonlyhongduc@gmail.com"];
 
@@ -41,73 +41,45 @@ const STORAGE_TIERS = {
 
 const ADMIN_UIDS = ["VYIs9XHLR9RMStwtcdwMrOIo33w1"];
 
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: string;
-  path: string | null;
-  authInfo: {
-    userId: string | undefined;
-    email: string | null | undefined;
-    emailVerified: boolean | undefined;
-    isAnonymous: boolean | undefined;
-    tenantId: string | null | undefined;
-    providerInfo: {
-      providerId: string;
-      displayName: string | null;
-      email: string | null;
-      photoUrl: string | null;
-    }[];
-  }
-}
-
-
 export default function App() {
-  const [user, setUser] = useState<any>(null);
-  const [userData, setUserData] = useState<UserData | null>(null);
+  const [user, setUser] = useState(null);
+  const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('my-files');
-  const [files, setFiles] = useState<FileData[]>([]);
-  const [folders, setFolders] = useState<FolderData[]>([]);
-  const [currentFolder, setCurrentFolder] = useState<string | null>(null);
+  const [files, setFiles] = useState([]);
+  const [folders, setFolders] = useState([]);
+  const [currentFolder, setCurrentFolder] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [previewFile, setPreviewFile] = useState<any>(null);
+  const [previewFile, setPreviewFile] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode, setViewMode] = useState('grid');
   const [aiChatOpen, setAiChatOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState<{role: string, text: string}[]>([]);
+  const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [isAiProcessing, setIsAiProcessing] = useState(false);
-  const [appError, setAppError] = useState<string | null>(null);
+  const [appError, setAppError] = useState(null);
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
-  const [requests, setRequests] = useState<UpgradeRequest[]>([]);
-  const [allUsers, setAllUsers] = useState<UserData[]>([]);
-  const [githubConfig, setGithubConfig] = useState({ token: '', repo: '', branch: 'main' });
+  const [requests, setRequests] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
+  // --- THAY ĐỔI 1: Cập nhật giá trị khởi tạo với thông tin bạn cung cấp ---
+  const [githubConfig, setGithubConfig] = useState({ token: '', repo: 'duccodedao/profiles', branch: 'main' });
   const [showUpgradeSuccess, setShowUpgradeSuccess] = useState(false);
-  const [language, setLanguage] = useState<'vi' | 'en'>('vi');
+  const [language, setLanguage] = useState('vi');
 
-  const t = (key: string, params?: Record<string, string>) => {
-    let text = (translations[language] as any)[key] || key;
+  const t = (key, params) => {
+    let text = (translations[language] || translations['en'])[key] || key;
     if (params) {
       Object.entries(params).forEach(([k, v]) => {
-        text = text.replace(`{${k}}`, v);
+        text = text.replace(`{${k}}`, String(v));
       });
     }
     return text;
   };
 
-  const handleError = (error: any, op: string, path: string | null) => {
+  const handleError = (error, op, path) => {
     console.error(`Error during ${op} on ${path}:`, error);
     setAppError(error.message || "An unexpected error occurred.");
   };
@@ -118,9 +90,15 @@ export default function App() {
       try {
         if (u) {
           setUser(u);
-          const userDoc = await getDoc(doc(db, 'users', u.uid));
+          const userDocRef = doc(db, 'users', u.uid);
+          const userDoc = await getDoc(userDocRef);
           if (userDoc.exists()) {
-            setUserData(userDoc.data());
+            const data = userDoc.data();
+            setUserData(data);
+            // --- THAY ĐỔI 2: Tải cấu hình GitHub đã lưu từ Firestore ---
+            if (data.githubConfig) {
+              setGithubConfig(data.githubConfig);
+            }
           } else {
             const newData = {
               uid: u.uid,
@@ -134,7 +112,7 @@ export default function App() {
               balance: 0,
               accountStatus: 'ACTIVE'
             };
-            await setDoc(doc(db, 'users', u.uid), newData);
+            await setDoc(userDocRef, newData);
             setUserData(newData);
           }
         } else {
@@ -148,7 +126,6 @@ export default function App() {
       }
     });
 
-    // Connection Test
     const testConnection = async () => {
       try {
         await getDocFromServer(doc(db, 'test', 'connection'));
@@ -169,14 +146,14 @@ export default function App() {
     
     const filesQuery = query(collection(db, 'files'), where('uid', '==', user.uid));
     const unsubscribeFiles = onSnapshot(filesQuery, (snapshot) => {
-      const f = snapshot.docs.map(doc => ({ ...doc.data(), fileId: doc.id }));
-      setFiles(f as any as FileData[]);
+      const f = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+      setFiles(f);
     }, (error) => handleError(error, 'LIST', 'files'));
 
     const foldersQuery = query(collection(db, 'folders'), where('uid', '==', user.uid));
     const unsubscribeFolders = onSnapshot(foldersQuery, (snapshot) => {
-      const fo = snapshot.docs.map(doc => ({ ...doc.data(), folderId: doc.id }));
-      setFolders(fo as any as FolderData[]);
+      const fo = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+      setFolders(fo);
     }, (error) => handleError(error, 'LIST', 'folders'));
 
     return () => {
@@ -193,12 +170,12 @@ export default function App() {
 
     const requestsQuery = query(collection(db, 'requests'));
     const unsubscribeRequests = onSnapshot(requestsQuery, (snapshot) => {
-      setRequests(snapshot.docs.map(doc => ({ ...doc.data(), requestId: doc.id })) as any as UpgradeRequest[]);
+      setRequests(snapshot.docs.map(doc => ({ ...doc.data(), requestId: doc.id })));
     }, (error) => handleError(error, 'LIST', 'requests'));
 
     const usersQuery = query(collection(db, 'users'));
     const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
-      setAllUsers(snapshot.docs.map(doc => doc.data()) as UserData[]);
+      setAllUsers(snapshot.docs.map(doc => doc.data()));
     }, (error) => handleError(error, 'LIST', 'users'));
 
     return () => {
@@ -206,6 +183,25 @@ export default function App() {
       unsubscribeUsers();
     };
   }, [user, isAdmin]);
+  
+  // --- THAY ĐỔI 3: Thêm hàm để lưu cấu hình GitHub ---
+  const handleSaveGithubConfig = async () => {
+    if (!user) {
+      handleError({ message: "User not logged in" }, 'SAVE_CONFIG', null);
+      return;
+    }
+    if (!githubConfig.token.startsWith('ghp_')) {
+      alert('Cảnh báo: Token không bắt đầu bằng "ghp_". Vui lòng kiểm tra lại PAT của bạn.');
+    }
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        githubConfig: githubConfig
+      });
+      alert('Đã lưu cấu hình GitHub thành công!');
+    } catch (error) {
+      handleError(error, 'UPDATE', `users/${user.uid}`);
+    }
+  };
 
   // Handlers
   const handleLogin = async () => {
@@ -218,7 +214,7 @@ export default function App() {
 
   const handleLogout = () => signOut(auth);
 
-  const onDrop = async (acceptedFiles: File[]) => {
+  const onDrop = async (acceptedFiles) => {
     if (!user || !userData) return;
     setIsUploading(true);
     setUploadProgress(0);
@@ -228,7 +224,7 @@ export default function App() {
         const storageRef = ref(storage, `users/${user.uid}/${Date.now()}_${file.name}`);
         const uploadTask = uploadBytesResumable(storageRef, file);
 
-        return new Promise<void>((resolve, reject) => {
+        return new Promise((resolve, reject) => {
           uploadTask.on('state_changed', 
             (snapshot) => {
               const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
@@ -240,10 +236,10 @@ export default function App() {
             },
             async () => {
               const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-              const fileId = Math.random().toString(36).substring(7);
+              const fileDocRef = doc(collection(db, 'files')); // Generate a new doc ref with ID
               
-              const newFile: FileData = {
-                fileId,
+              const newFile = {
+                fileId: fileDocRef.id,
                 uid: user.uid,
                 folderId: currentFolder,
                 fileName: file.name,
@@ -258,20 +254,19 @@ export default function App() {
                 ocrText: ""
               };
 
-              await setDoc(doc(db, 'files', fileId), newFile);
+              await setDoc(fileDocRef, newFile);
               await updateDoc(doc(db, 'users', user.uid), {
                 storageUsed: increment(file.size)
               });
 
-              // AI Analysis in background
               if (file.type.startsWith('image/')) {
                 const reader = new FileReader();
                 reader.readAsDataURL(file);
                 reader.onload = async () => {
-                  const base64 = (reader.result as string).split(',')[1];
+                  const base64 = (reader.result).split(',')[1];
                   const analysis = await analyzeImage(base64, file.type);
                   if (analysis) {
-                    await updateDoc(doc(db, 'files', fileId), { 
+                    await updateDoc(fileDocRef, { 
                       aiTags: analysis.tags || [], 
                       ocrText: analysis.ocrText || "" 
                     });
@@ -294,9 +289,9 @@ export default function App() {
     }
   };
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, noClick: true } as any);
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, noClick: true });
 
-  const handleDeleteFile = async (file: FileData) => {
+  const handleDeleteFile = async (file) => {
     if (!window.confirm(t('confirm_delete', { name: file.fileName }))) return;
     try {
       await deleteDoc(doc(db, 'files', file.fileId));
@@ -309,32 +304,32 @@ export default function App() {
     }
   };
 
-  const handleToggleStar = async (file: FileData) => {
+  const handleToggleStar = async (file) => {
     try {
-      await updateDoc(doc(db, 'files', file.fileId), {
-        isStarred: !file.isStarred
-      });
+      const fileRef = doc(db, 'files', file.fileId);
+      await updateDoc(fileRef, { isStarred: !file.isStarred });
+      setPreviewFile(prev => ({...prev, isStarred: !file.isStarred}));
     } catch (error) {
       handleError(error, 'UPDATE', 'files');
     }
   };
 
-  const handleToggleTrash = async (file: FileData) => {
+  const handleToggleTrash = async (file) => {
     try {
-      await updateDoc(doc(db, 'files', file.fileId), {
-        isDeleted: !file.isDeleted
-      });
+      const fileRef = doc(db, 'files', file.fileId);
+      await updateDoc(fileRef, { isDeleted: !file.isDeleted });
+      setPreviewFile(null); // Close preview after trashing/restoring
     } catch (error) {
       handleError(error, 'UPDATE', 'files');
     }
   };
 
-  const handleRequestUpgrade = async (level: string) => {
+  const handleRequestUpgrade = async (level) => {
     if (!user) return;
-    const requestId = Math.random().toString(36).substring(7);
+    const requestDocRef = doc(collection(db, 'requests'));
     try {
-      await setDoc(doc(db, 'requests', requestId), {
-        requestId,
+      await setDoc(requestDocRef, {
+        requestId: requestDocRef.id,
         uid: user.uid,
         userEmail: user.email,
         userName: user.displayName,
@@ -350,7 +345,7 @@ export default function App() {
     }
   };
 
-  const handleApproveRequest = async (request: UpgradeRequest) => {
+  const handleApproveRequest = async (request) => {
     try {
       const tier = STORAGE_TIERS[request.requestedLevel];
       await updateDoc(doc(db, 'users', request.uid), {
@@ -366,7 +361,7 @@ export default function App() {
     }
   };
 
-  const handleRejectRequest = async (requestId: string) => {
+  const handleRejectRequest = async (requestId) => {
     try {
       await updateDoc(doc(db, 'requests', requestId), {
         status: 'REJECTED',
@@ -377,22 +372,27 @@ export default function App() {
     }
   };
 
-  const handleDeletePermanently = async (file: FileData) => {
+  const handleDeletePermanently = async (file) => {
     if (!window.confirm(t('confirm_delete_perm', { name: file.fileName }))) return;
     try {
+      // First, delete from storage if applicable (not shown in original code, but good practice)
+      // const fileStorageRef = ref(storage, `users/${user.uid}/${...}`);
+      // await deleteObject(fileStorageRef);
+      
+      // Then, delete from Firestore
       await deleteDoc(doc(db, 'files', file.fileId));
       setPreviewFile(null);
     } catch (error) {
-      handleError(error, 'DELETE', 'files');
+      handleError(error, 'DELETE_PERM', 'files');
     }
   };
 
   const handleCreateFolder = async () => {
     if (!user || !newFolderName.trim()) return;
-    const folderId = Math.random().toString(36).substring(7);
+    const folderDocRef = doc(collection(db, 'folders'));
     try {
-      await setDoc(doc(db, 'folders', folderId), {
-        folderId,
+      await setDoc(folderDocRef, {
+        folderId: folderDocRef.id,
         uid: user.uid,
         name: newFolderName.trim(),
         parentId: currentFolder,
@@ -414,7 +414,6 @@ export default function App() {
     setIsAiProcessing(true);
 
     try {
-      // For text-based files, we'd fetch content. For now, let's simulate or use metadata.
       let content = `File Name: ${previewFile.fileName}, Type: ${previewFile.fileType}, Tags: ${previewFile.aiTags?.join(', ')}, OCR: ${previewFile.ocrText}`;
       
       const aiResponse = await chatWithFile(content, previewFile.fileName, userMsg);
@@ -430,7 +429,6 @@ export default function App() {
   const filteredFiles = useMemo(() => {
     let f = files;
     
-    // Filter by tab
     if (activeTab === 'my-files') {
       f = f.filter(file => file.folderId === currentFolder && !file.isDeleted);
     } else if (activeTab === 'photos') {
@@ -444,18 +442,21 @@ export default function App() {
     }
 
     if (searchQuery) {
+      const lowercasedQuery = searchQuery.toLowerCase();
       f = f.filter(file => 
-        file.fileName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        file.aiTags?.some((tag: string) => tag.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        file.ocrText?.toLowerCase().includes(searchQuery.toLowerCase())
+        file.fileName.toLowerCase().includes(lowercasedQuery) ||
+        file.aiTags?.some(tag => tag.toLowerCase().includes(lowercasedQuery)) ||
+        (file.ocrText && file.ocrText.toLowerCase().includes(lowercasedQuery))
       );
     }
-    return f;
+    return f.sort((a, b) => new Date(b.uploadDate) - new Date(a.uploadDate));
   }, [files, currentFolder, searchQuery, activeTab]);
 
   const filteredFolders = useMemo(() => {
     if (activeTab !== 'my-files') return [];
-    return folders.filter(folder => folder.parentId === currentFolder && !folder.isDeleted);
+    return folders
+      .filter(folder => folder.parentId === currentFolder && !folder.isDeleted)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   }, [folders, currentFolder, activeTab]);
 
   if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50">
@@ -699,6 +700,7 @@ export default function App() {
                     <button 
                       onClick={() => userData?.vipLevel !== key && handleRequestUpgrade(key)}
                       className={`w-full py-3 rounded-2xl font-semibold transition-all ${userData?.vipLevel === key ? 'bg-slate-100 text-slate-400 cursor-default' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-100 active:scale-95'}`}
+                      disabled={userData?.vipLevel === key}
                     >
                       {userData?.vipLevel === key ? t('current_plan') : t('request_upgrade')}
                     </button>
@@ -866,7 +868,8 @@ export default function App() {
                           />
                         </div>
                       </div>
-                      <button className="btn-primary w-full mt-4">{t('save_config')}</button>
+                      {/* --- THAY ĐỔI 4: Gắn sự kiện onClick vào nút --- */}
+                      <button onClick={handleSaveGithubConfig} className="btn-primary w-full mt-4">{t('save_config')}</button>
                     </div>
                   </div>
                 )}
@@ -906,13 +909,13 @@ export default function App() {
                 {currentFolder && (
                   <>
                     <ChevronRight size={14} />
-                    <span className="text-slate-900 font-medium">{folders.find(f => f.folderId === currentFolder)?.folderName}</span>
+                    <span className="text-slate-900 font-medium">{folders.find(f => f.folderId === currentFolder)?.name}</span>
                   </>
                 )}
               </div>
 
               {/* Folders Section */}
-              {filteredFolders.length > 0 && (
+              {filteredFolders.length > 0 && activeTab === 'my-files' && (
                 <div className="mb-10">
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="text-lg font-bold flex items-center gap-2">
@@ -931,7 +934,7 @@ export default function App() {
                           <Folder size={24} fill="currentColor" fillOpacity={0.2} />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold truncate">{folder.folderName}</p>
+                          <p className="font-semibold truncate">{folder.name}</p>
                           <p className="text-xs text-slate-400">Folder</p>
                         </div>
                       </div>
@@ -946,9 +949,6 @@ export default function App() {
                   <h2 className="text-lg font-bold flex items-center gap-2">
                     <File className="text-indigo-500" size={20} /> {t('files')}
                   </h2>
-                  <div className="flex items-center gap-4 text-sm text-slate-500">
-                    <span className="flex items-center gap-1"><Filter size={14} /> Sort by Date</span>
-                  </div>
                 </div>
 
                 {filteredFiles.length === 0 ? (
@@ -958,15 +958,15 @@ export default function App() {
                     </div>
                     <h3 className="text-xl font-bold text-slate-900 mb-2">{t('no_files')}</h3>
                     <p className="text-slate-500 mb-8">{t('drag_drop')}</p>
-                    <button onClick={() => document.getElementById('file-upload')?.click()} className="btn-secondary">{t('browse_files')}</button>
+                    <button onClick={() => document.getElementById('file-upload')?.click()} className="btn-secondary px-6 py-3">{t('browse_files')}</button>
                   </div>
                 ) : (
                   <div className={viewMode === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6" : "space-y-3"}>
                     {filteredFiles.map(file => (
                       <motion.div 
                         layout
-                        key={file.id}
-                        onClick={() => setPreviewFile(file)}
+                        key={file.fileId}
+                        onClick={() => { setPreviewFile(file); setChatMessages([]); }}
                         className={viewMode === 'grid' ? "file-card" : "bg-white p-4 rounded-2xl border border-slate-100 flex items-center gap-4 hover:shadow-md transition-all cursor-pointer"}
                       >
                         {viewMode === 'grid' ? (
@@ -993,13 +993,10 @@ export default function App() {
                                 <p className="font-semibold truncate text-slate-900">{file.fileName}</p>
                                 <p className="text-xs text-slate-400">{Math.round(file.fileSize / 1024)} KB • {format(new Date(file.uploadDate), 'MMM d, yyyy')}</p>
                               </div>
-                              <button className="p-1 hover:bg-slate-100 rounded-lg text-slate-400">
-                                <MoreVertical size={16} />
-                              </button>
                             </div>
                             {file.aiTags && file.aiTags.length > 0 && (
                               <div className="mt-3 flex flex-wrap gap-1">
-                                {file.aiTags.slice(0, 2).map((tag: string) => (
+                                {file.aiTags.slice(0, 2).map((tag) => (
                                   <span key={tag} className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-medium">#{tag}</span>
                                 ))}
                                 {file.aiTags.length > 2 && <span className="text-[10px] text-slate-400">+{file.aiTags.length - 2}</span>}
@@ -1018,8 +1015,6 @@ export default function App() {
                             <div className="text-xs text-slate-400 hidden md:block">{format(new Date(file.uploadDate), 'MMM d, yyyy HH:mm')}</div>
                             <div className="flex items-center gap-2">
                               {file.isStarred && <Star size={18} className="text-amber-500" fill="currentColor" />}
-                              <button className="p-2 hover:bg-slate-100 rounded-xl text-slate-400"><Download size={18} /></button>
-                              <button className="p-2 hover:bg-slate-100 rounded-xl text-slate-400"><MoreVertical size={18} /></button>
                             </div>
                           </>
                         )}
@@ -1088,7 +1083,7 @@ export default function App() {
                         <h3 className="text-2xl font-bold mb-2">{t('no_preview')}</h3>
                         <p className="text-slate-500">{t('no_preview_desc')}</p>
                       </div>
-                      <a href={previewFile.downloadURL} target="_blank" rel="noreferrer" className="btn-primary flex items-center gap-2">
+                      <a href={previewFile.downloadURL} target="_blank" rel="noreferrer" className="btn-primary flex items-center gap-2 px-6 py-3">
                         <Download size={20} /> {t('download_file')}
                       </a>
                     </div>
@@ -1163,7 +1158,7 @@ export default function App() {
                         <div>
                           <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">{t('ai_tags')}</h4>
                           <div className="flex flex-wrap gap-2">
-                            {previewFile.aiTags.map((tag: string) => (
+                            {previewFile.aiTags.map((tag) => (
                               <span key={tag} className="bg-indigo-50 text-indigo-600 px-3 py-1 rounded-full text-xs font-semibold">#{tag}</span>
                             ))}
                           </div>
@@ -1257,7 +1252,7 @@ export default function App() {
               <div className="bg-slate-50 p-6 rounded-3xl mb-8 border border-slate-100">
                 <p className="text-sm font-semibold text-slate-700 mb-4">{t('contact_admin')}:</p>
                 <a 
-                  href="https://facebook.com/admin_profile" 
+                  href="https://facebook.com/100088849481436" 
                   target="_blank" 
                   rel="noreferrer"
                   className="flex items-center justify-center gap-3 bg-indigo-600 text-white py-3 rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
@@ -1300,8 +1295,8 @@ export default function App() {
                 onKeyDown={(e) => e.key === 'Enter' && handleCreateFolder()}
               />
               <div className="flex gap-3">
-                <button onClick={() => setShowNewFolderModal(false)} className="flex-1 btn-secondary">{t('cancel')}</button>
-                <button onClick={handleCreateFolder} className="flex-1 btn-primary">{t('create')}</button>
+                <button onClick={() => setShowNewFolderModal(false)} className="flex-1 btn-secondary py-3">{t('cancel')}</button>
+                <button onClick={handleCreateFolder} className="flex-1 btn-primary py-3">{t('create')}</button>
               </div>
             </motion.div>
           </motion.div>
