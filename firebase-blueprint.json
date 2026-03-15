@@ -40,6 +40,8 @@
         "downloads": { "type": "number" },
         "aiTags": { "type": "array", "items": { "type": "string" } },
         "ocrText": { "type": "string" },
+        "isStarred": { "type": "boolean" },
+        "isDeleted": { "type": "boolean" },
         "faceData": { "type": "object" },
         "versionHistory": { "type": "array" }
       },
@@ -54,7 +56,9 @@
         "uid": { "type": "string" },
         "parentId": { "type": "string" },
         "folderName": { "type": "string" },
-        "createdAt": { "type": "string" }
+        "createdAt": { "type": "string" },
+        "isStarred": { "type": "boolean" },
+        "isDeleted": { "type": "boolean" }
       },
       "required": ["folderId", "uid", "folderName"]
     }

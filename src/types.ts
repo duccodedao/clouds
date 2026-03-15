@@ -25,6 +25,8 @@ export interface FileData {
   downloads: number;
   aiTags: string[];
   ocrText: string;
+  isStarred?: boolean;
+  isDeleted?: boolean;
 }
 
 export interface FolderData {
@@ -33,4 +35,6 @@ export interface FolderData {
   parentId: string | null;
   folderName: string;
   createdAt: string;
+  isStarred?: boolean;
+  isDeleted?: boolean;
 }

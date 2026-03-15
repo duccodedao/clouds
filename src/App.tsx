@@ -48,7 +48,7 @@ enum OperationType {
 
 interface FirestoreErrorInfo {
   error: string;
-  operationType: OperationType;
+  operationType: string;
   path: string | null;
   authInfo: {
     userId: string | undefined;
@@ -62,68 +62,6 @@ interface FirestoreErrorInfo {
       email: string | null;
       photoUrl: string | null;
     }[];
-  }
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
-        providerId: provider.providerId,
-        displayName: provider.displayName,
-        email: provider.email,
-        photoUrl: provider.photoURL
-      })) || []
-    },
-    operationType,
-    path
-  }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
-}
-
-interface ErrorBoundaryProps {
-  children: React.ReactNode;
-}
-
-interface ErrorBoundaryState {
-  hasError: boolean;
-  error: any;
-}
-
-class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  public state: ErrorBoundaryState = { hasError: false, error: null };
-
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-  }
-  static getDerivedStateFromError(error: any) {
-    return { hasError: true, error };
-  }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
-          <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full text-center">
-            <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-6 text-red-500">
-              <AlertCircle size={32} />
-            </div>
-            <h2 className="text-2xl font-bold text-slate-900 mb-2">Something went wrong</h2>
-            <p className="text-slate-500 mb-6 text-sm overflow-hidden text-ellipsis">
-              {this.state.error?.message || "An unexpected error occurred."}
-            </p>
-            <button onClick={() => window.location.reload()} className="btn-primary w-full">Reload Application</button>
-          </div>
-        </div>
-      );
-    }
-    return (this as any).props.children;
   }
 }
 
@@ -146,6 +84,14 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState<{role: string, text: string}[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [isAiProcessing, setIsAiProcessing] = useState(false);
+  const [appError, setAppError] = useState<string | null>(null);
+  const [showNewFolderModal, setShowNewFolderModal] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+
+  const handleError = (error: any, op: string, path: string | null) => {
+    console.error(`Error during ${op} on ${path}:`, error);
+    setAppError(error.message || "An unexpected error occurred.");
+  };
 
   // Auth Listener
   useEffect(() => {
@@ -177,8 +123,7 @@ export default function App() {
           setUserData(null);
         }
       } catch (error) {
-        console.error("Auth initialization error:", error);
-        handleFirestoreError(error, OperationType.GET, 'users');
+        handleError(error, 'GET', 'users');
       } finally {
         setLoading(false);
       }
@@ -206,14 +151,14 @@ export default function App() {
     const filesQuery = query(collection(db, 'files'), where('uid', '==', user.uid));
     const unsubscribeFiles = onSnapshot(filesQuery, (snapshot) => {
       const f = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setFiles(f);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'files'));
+      setFiles(f as FileData[]);
+    }, (error) => handleError(error, 'LIST', 'files'));
 
     const foldersQuery = query(collection(db, 'folders'), where('uid', '==', user.uid));
     const unsubscribeFolders = onSnapshot(foldersQuery, (snapshot) => {
       const fo = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setFolders(fo);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'folders'));
+      setFolders(fo as FolderData[]);
+    }, (error) => handleError(error, 'LIST', 'folders'));
 
     return () => {
       unsubscribeFiles();
@@ -226,7 +171,7 @@ export default function App() {
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (error) {
-      console.error("Login failed", error);
+      handleError(error, 'LOGIN', 'auth');
     }
   };
 
@@ -235,85 +180,83 @@ export default function App() {
   const onDrop = async (acceptedFiles: File[]) => {
     if (!user || !userData) return;
     setIsUploading(true);
-    
-    for (const file of acceptedFiles) {
-      const storageRef = ref(storage, `users/${user.uid}/${Date.now()}_${file.name}`);
-      const uploadTask = uploadBytesResumable(storageRef, file);
-
-      uploadTask.on('state_changed', 
-        (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          setUploadProgress(progress);
-        },
-        (error) => {
-          console.error("Upload failed", error);
-          setIsUploading(false);
-        },
-        async () => {
-          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-          
-          // AI Analysis for images
-          let aiTags: string[] = [];
-          let ocrText = "";
-          if (file.type.startsWith('image/')) {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onload = async () => {
-              const base64 = (reader.result as string).split(',')[1];
-              const analysis = await analyzeImage(base64, file.type);
-              if (analysis) {
-                aiTags = analysis.tags || [];
-                ocrText = analysis.ocrText || "";
-                
-                // Update file doc with AI data
-                await updateDoc(doc(db, 'files', fileId), { aiTags, ocrText });
-              }
-            };
-          }
-
-          const fileId = Math.random().toString(36).substring(7);
-          try {
-            await setDoc(doc(db, 'files', fileId), {
-              fileId,
-              uid: user.uid,
-              folderId: currentFolder,
-              fileName: file.name,
-              fileType: file.type,
-              fileSize: file.size,
-              downloadURL,
-              uploadDate: new Date().toISOString(),
-              visibility: 'PRIVATE',
-              views: 0,
-              downloads: 0,
-              aiTags: [],
-              ocrText: ""
-            });
-
-            // Update storage used
-            await updateDoc(doc(db, 'users', user.uid), {
-              storageUsed: increment(file.size)
-            });
-          } catch (error) {
-            handleFirestoreError(error, OperationType.WRITE, 'files');
-          }
-
-          confetti({
-            particleCount: 100,
-            spread: 70,
-            origin: { y: 0.6 }
-          });
-        }
-      );
-    }
-    setIsUploading(false);
     setUploadProgress(0);
+    
+    try {
+      const uploadPromises = acceptedFiles.map(async (file) => {
+        const storageRef = ref(storage, `users/${user.uid}/${Date.now()}_${file.name}`);
+        const uploadTask = uploadBytesResumable(storageRef, file);
+
+        return new Promise<void>((resolve, reject) => {
+          uploadTask.on('state_changed', 
+            (snapshot) => {
+              const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+              setUploadProgress(progress);
+            },
+            (error) => {
+              console.error("Upload failed", error);
+              reject(error);
+            },
+            async () => {
+              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+              const fileId = Math.random().toString(36).substring(7);
+              
+              const newFile: FileData = {
+                fileId,
+                uid: user.uid,
+                folderId: currentFolder,
+                fileName: file.name,
+                fileType: file.type,
+                fileSize: file.size,
+                downloadURL,
+                uploadDate: new Date().toISOString(),
+                visibility: 'PRIVATE',
+                views: 0,
+                downloads: 0,
+                aiTags: [],
+                ocrText: ""
+              };
+
+              await setDoc(doc(db, 'files', fileId), newFile);
+              await updateDoc(doc(db, 'users', user.uid), {
+                storageUsed: increment(file.size)
+              });
+
+              // AI Analysis in background
+              if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = async () => {
+                  const base64 = (reader.result as string).split(',')[1];
+                  const analysis = await analyzeImage(base64, file.type);
+                  if (analysis) {
+                    await updateDoc(doc(db, 'files', fileId), { 
+                      aiTags: analysis.tags || [], 
+                      ocrText: analysis.ocrText || "" 
+                    });
+                  }
+                };
+              }
+              resolve();
+            }
+          );
+        });
+      });
+
+      await Promise.all(uploadPromises);
+      confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+    } catch (error) {
+      handleError(error, 'UPLOAD', 'storage');
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(0);
+    }
   };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop } as any);
 
   const handleCreateFolder = async () => {
-    const name = prompt("Enter folder name:");
-    if (!name || !user) return;
+    if (!newFolderName.trim() || !user) return;
     
     const folderId = Math.random().toString(36).substring(7);
     try {
@@ -321,26 +264,26 @@ export default function App() {
         folderId,
         uid: user.uid,
         parentId: currentFolder,
-        folderName: name,
+        folderName: newFolderName.trim(),
         createdAt: new Date().toISOString()
       });
+      setShowNewFolderModal(false);
+      setNewFolderName('');
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'folders');
+      handleError(error, 'WRITE', 'folders');
     }
   };
 
   const handleDeleteFile = async (file: any) => {
-    if (!confirm(`Delete ${file.fileName}?`)) return;
+    if (!window.confirm(`Delete ${file.fileName}?`)) return;
     try {
       await deleteDoc(doc(db, 'files', file.id));
-      // Optionally delete from storage too
-      // const fileRef = ref(storage, file.downloadURL);
-      // await deleteObject(fileRef);
       await updateDoc(doc(db, 'users', user.uid), {
         storageUsed: increment(-file.fileSize)
       });
+      setPreviewFile(null);
     } catch (error) {
-      console.error("Delete failed", error);
+      handleError(error, 'DELETE', 'files');
     }
   };
 
@@ -359,6 +302,7 @@ export default function App() {
       const aiResponse = await chatWithFile(content, previewFile.fileName, userMsg);
       setChatMessages(prev => [...prev, { role: 'ai', text: aiResponse || "I couldn't process that." }]);
     } catch (error) {
+      handleError(error, 'CHAT', 'ai');
       setChatMessages(prev => [...prev, { role: 'ai', text: "Error communicating with AI." }]);
     } finally {
       setIsAiProcessing(false);
@@ -414,8 +358,26 @@ export default function App() {
   );
 
   return (
-    <ErrorBoundary>
-      <div className="flex h-screen bg-slate-50 overflow-hidden">
+    <div className="flex h-screen bg-slate-50 overflow-hidden">
+      {/* Error Banner */}
+      <AnimatePresence>
+        {appError && (
+          <motion.div 
+            initial={{ y: -100 }}
+            animate={{ y: 0 }}
+            exit={{ y: -100 }}
+            className="fixed top-0 left-0 right-0 z-[200] bg-red-600 text-white p-4 flex items-center justify-between shadow-lg"
+          >
+            <div className="flex items-center gap-3">
+              <AlertCircle size={20} />
+              <span className="font-medium">{appError}</span>
+            </div>
+            <button onClick={() => setAppError(null)} className="p-1 hover:bg-white/20 rounded-lg">
+              <X size={20} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {/* Sidebar */}
       <AnimatePresence>
         {isSidebarOpen && (
@@ -585,7 +547,7 @@ export default function App() {
                 <h2 className="text-lg font-bold flex items-center gap-2">
                   <Folder className="text-amber-500" size={20} /> Folders
                 </h2>
-                <button onClick={handleCreateFolder} className="text-sm text-indigo-600 font-medium hover:underline">New Folder</button>
+                <button onClick={() => setShowNewFolderModal(true)} className="text-sm text-indigo-600 font-medium hover:underline">New Folder</button>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                 {filteredFolders.map(folder => (
@@ -873,7 +835,40 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* New Folder Modal */}
+      <AnimatePresence>
+        {showNewFolderModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[150] flex items-center justify-center p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-white p-8 rounded-[2rem] shadow-2xl max-w-sm w-full"
+            >
+              <h3 className="text-xl font-bold mb-4">Create New Folder</h3>
+              <input 
+                type="text" 
+                placeholder="Folder name" 
+                className="w-full bg-slate-100 border-none rounded-xl py-3 px-4 mb-6 focus:ring-2 focus:ring-indigo-500"
+                autoFocus
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleCreateFolder()}
+              />
+              <div className="flex gap-3">
+                <button onClick={() => setShowNewFolderModal(false)} className="flex-1 btn-secondary">Cancel</button>
+                <button onClick={handleCreateFolder} className="flex-1 btn-primary">Create</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       </div>
-    </ErrorBoundary>
+    </div>
   );
 }
