@@ -22,6 +22,7 @@ import { format } from 'date-fns';
 import { useDropzone } from 'react-dropzone';
 import confetti from 'canvas-confetti';
 import { analyzeImage, chatWithFile, semanticSearch } from './services/aiService';
+import { getDocFromServer } from 'firebase/firestore';
 
 // --- Constants & Types ---
 
@@ -148,33 +149,52 @@ export default function App() {
   // Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
-      if (u) {
-        setUser(u);
-        const userDoc = await getDoc(doc(db, 'users', u.uid));
-        if (userDoc.exists()) {
-          setUserData(userDoc.data());
+      try {
+        if (u) {
+          setUser(u);
+          const userDoc = await getDoc(doc(db, 'users', u.uid));
+          if (userDoc.exists()) {
+            setUserData(userDoc.data());
+          } else {
+            const newData = {
+              uid: u.uid,
+              email: u.email,
+              displayName: u.displayName,
+              photoURL: u.photoURL,
+              joinDate: new Date().toISOString(),
+              vipLevel: 'USER',
+              storageUsed: 0,
+              storageLimit: STORAGE_TIERS.USER.limit,
+              balance: 0,
+              accountStatus: 'ACTIVE'
+            };
+            await setDoc(doc(db, 'users', u.uid), newData);
+            setUserData(newData);
+          }
         } else {
-          const newData = {
-            uid: u.uid,
-            email: u.email,
-            displayName: u.displayName,
-            photoURL: u.photoURL,
-            joinDate: new Date().toISOString(),
-            vipLevel: 'USER',
-            storageUsed: 0,
-            storageLimit: STORAGE_TIERS.USER.limit,
-            balance: 0,
-            accountStatus: 'ACTIVE'
-          };
-          await setDoc(doc(db, 'users', u.uid), newData);
-          setUserData(newData);
+          setUser(null);
+          setUserData(null);
         }
-      } else {
-        setUser(null);
-        setUserData(null);
+      } catch (error) {
+        console.error("Auth initialization error:", error);
+        handleFirestoreError(error, OperationType.GET, 'users');
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
+
+    // Connection Test
+    const testConnection = async () => {
+      try {
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration. The client is offline.");
+        }
+      }
+    };
+    testConnection();
+
     return unsubscribe;
   }, []);
 
@@ -251,26 +271,30 @@ export default function App() {
           }
 
           const fileId = Math.random().toString(36).substring(7);
-          await setDoc(doc(db, 'files', fileId), {
-            fileId,
-            uid: user.uid,
-            folderId: currentFolder,
-            fileName: file.name,
-            fileType: file.type,
-            fileSize: file.size,
-            downloadURL,
-            uploadDate: new Date().toISOString(),
-            visibility: 'PRIVATE',
-            views: 0,
-            downloads: 0,
-            aiTags: [],
-            ocrText: ""
-          });
+          try {
+            await setDoc(doc(db, 'files', fileId), {
+              fileId,
+              uid: user.uid,
+              folderId: currentFolder,
+              fileName: file.name,
+              fileType: file.type,
+              fileSize: file.size,
+              downloadURL,
+              uploadDate: new Date().toISOString(),
+              visibility: 'PRIVATE',
+              views: 0,
+              downloads: 0,
+              aiTags: [],
+              ocrText: ""
+            });
 
-          // Update storage used
-          await updateDoc(doc(db, 'users', user.uid), {
-            storageUsed: increment(file.size)
-          });
+            // Update storage used
+            await updateDoc(doc(db, 'users', user.uid), {
+              storageUsed: increment(file.size)
+            });
+          } catch (error) {
+            handleFirestoreError(error, OperationType.WRITE, 'files');
+          }
 
           confetti({
             particleCount: 100,
@@ -291,13 +315,17 @@ export default function App() {
     if (!name || !user) return;
     
     const folderId = Math.random().toString(36).substring(7);
-    await setDoc(doc(db, 'folders', folderId), {
-      folderId,
-      uid: user.uid,
-      parentId: currentFolder,
-      folderName: name,
-      createdAt: new Date().toISOString()
-    });
+    try {
+      await setDoc(doc(db, 'folders', folderId), {
+        folderId,
+        uid: user.uid,
+        parentId: currentFolder,
+        folderName: name,
+        createdAt: new Date().toISOString()
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'folders');
+    }
   };
 
   const handleDeleteFile = async (file: any) => {
